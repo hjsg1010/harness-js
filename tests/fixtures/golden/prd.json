@@ -1,0 +1,30 @@
+{
+  "sourceSeedId": "seed_fixed",
+  "sourceSpecPath": "/tmp/spec.md",
+  "sourceSeedPath": "/tmp/seed.yaml",
+  "status": "pending",
+  "stories": [
+    {
+      "id": "story_001",
+      "title": "The CLI can create an interview session",
+      "acceptanceCriteria": [
+        "The CLI can create an interview session"
+      ],
+      "verificationCommands": [],
+      "passes": false,
+      "attempts": 0,
+      "lastReviewerVerdict": "pending"
+    },
+    {
+      "id": "story_002",
+      "title": "The CLI can write a seed YAML file",
+      "acceptanceCriteria": [
+        "The CLI can write a seed YAML file"
+      ],
+      "verificationCommands": [],
+      "passes": false,
+      "attempts": 0,
+      "lastReviewerVerdict": "pending"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+goal: Build a small CLI that interviews the user and writes a seed file.
+task_type: code
+constraints:
+  - Node.js 20+
+  - Use local files only
+acceptance_criteria:
+  - The CLI can create an interview session
+  - The CLI can write a seed YAML file
+ontology_schema:
+  name: Demo Harness Spec
+  description: Demo Harness Spec output ontology
+  fields:
+    - name: Interview
+      type: core domain
+      description: "Fields: id, rounds"
+      required: true
+    - name: Seed
+      type: core domain
+      description: "Fields: goal, acceptanceCriteria"
+      required: true
+metadata:
+  seed_id: seed_fixed
+  interview_id: interview_fixed
+  ambiguity_score: 0.15
+  forced: false
+  created_at: 2026-03-31T00:00:00.000Z

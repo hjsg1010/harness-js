@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.harness/
+coverage/
+tasks/todo.md
+tasks/lessons.md
