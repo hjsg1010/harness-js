@@ -16,6 +16,7 @@ function buildBaseArtifacts() {
     sourceSeedId: "seed_fixed",
     sourceSpecPath: "/tmp/spec.md",
     sourceSeedPath: "/tmp/seed.yaml",
+    goal: "Build a report-producing CLI",
     status: "pending",
     stories: [
       {
@@ -33,9 +34,14 @@ function buildBaseArtifacts() {
     runId: "run_fixed",
     status: "pending",
     currentStoryId: null,
+    reopenTarget: null,
+    reopenStateId: null,
+    suggestedNextCommand: null,
+    reopenReason: null,
     createdAt: "2026-03-31T00:00:00.000Z",
     updatedAt: "2026-03-31T00:00:00.000Z",
-    repeatedFailures: {}
+    repeatedFailures: {},
+    reopenHistory: []
   };
   return { prd, loopState, progress: "# Ralph Progress\n", verification: [] };
 }
@@ -154,5 +160,108 @@ describe("RalphService", () => {
     expect(result.prd.stories).toHaveLength(2);
     expect(result.prd.stories[1]?.title).toBe("Add regression proof");
     expect(result.prd.stories.every((story) => story.passes)).toBe(true);
+  });
+
+  it("returns reopen_required with a synthetic feature reopen state when the critic reports requirement ambiguity", async () => {
+    const cwd = await createTempDir();
+    tempDirs.push(cwd);
+
+    const runner = new FakeCodexRunner();
+    runner.pushExecText("story 1 impl");
+    runner.pushExecJson({
+      verdict: "APPROVE",
+      summary: "QA passed",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "APPROVE",
+      summary: "Reviewer approved story 1",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "REJECT",
+      summary: "The output format is still ambiguous.",
+      failureSignature: "ambiguous-output-format",
+      rejectionCategory: "requirement_ambiguity",
+      findings: ["Clarify the output format."]
+    });
+
+    const service = new RalphService(runner);
+    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
+
+    expect(result.loopState.status).toBe("reopen_required");
+    expect(result.loopState.reopenTarget).toBe("feature");
+    expect(result.loopState.suggestedNextCommand).toMatch(/harness interview --resume/);
+    expect(result.loopState.reopenStateId).toBeTruthy();
+    expect(result.loopState.reopenHistory).toHaveLength(1);
+    expect(result.loopState.reopenHistory[0]?.reason).toBe("requirement_ambiguity");
+  });
+
+  it("falls back to requirement ambiguity when the critic asks for clarification without a category", async () => {
+    const cwd = await createTempDir();
+    tempDirs.push(cwd);
+
+    const runner = new FakeCodexRunner();
+    runner.pushExecText("story 1 impl");
+    runner.pushExecJson({
+      verdict: "APPROVE",
+      summary: "QA passed",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "APPROVE",
+      summary: "Reviewer approved story 1",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "REJECT",
+      summary: "Clarify whether the final output must be markdown or JSON.",
+      failureSignature: "ambiguous-output-format",
+      findings: ["The output format is ambiguous and needs clarification."]
+    });
+
+    const service = new RalphService(runner);
+    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
+
+    expect(result.loopState.status).toBe("reopen_required");
+    expect(result.loopState.reopenTarget).toBe("feature");
+    expect(result.loopState.reopenReason).toBe("requirement_ambiguity");
+  });
+
+  it("falls back to a harness reopen when the critic reports a harness design gap without a category", async () => {
+    const cwd = await createTempDir();
+    tempDirs.push(cwd);
+
+    const runner = new FakeCodexRunner();
+    runner.pushExecText("story 1 impl");
+    runner.pushExecJson({
+      verdict: "APPROVE",
+      summary: "QA passed",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "APPROVE",
+      summary: "Reviewer approved story 1",
+      failureSignature: null,
+      findings: []
+    });
+    runner.pushReviewJson({
+      verdict: "REJECT",
+      summary: "The harness verification strategy is missing CLI path validation.",
+      failureSignature: "harness-verification-gap",
+      findings: ["The harness needs a stronger verification strategy for generated paths."]
+    });
+
+    const service = new RalphService(runner);
+    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
+
+    expect(result.loopState.status).toBe("reopen_required");
+    expect(result.loopState.reopenTarget).toBe("harness");
+    expect(result.loopState.reopenReason).toBe("harness_design_gap");
   });
 });

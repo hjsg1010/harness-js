@@ -1,8 +1,20 @@
 export type ProjectType = "greenfield" | "brownfield";
-export type DimensionName = "goal" | "constraints" | "criteria" | "context";
+export type FeatureDimensionName = "goal" | "constraints" | "criteria" | "context";
+export type ArchitectDimensionName =
+  | "domain_scope"
+  | "work_units"
+  | "team_topology"
+  | "verification_strategy"
+  | "user_operating_style";
+export type DimensionName = FeatureDimensionName;
 export type InterviewStatus = "in_progress" | "completed";
-export type LoopStatus = "pending" | "running" | "blocked" | "completed";
+export type LoopStatus = "pending" | "running" | "blocked" | "completed" | "reopen_required";
 export type Verdict = "APPROVE" | "REJECT";
+export type InterviewLane = "feature" | "architect";
+export type RejectionCategory =
+  | "implementation_gap"
+  | "requirement_ambiguity"
+  | "harness_design_gap";
 
 export interface DimensionAssessment {
   score: number;
@@ -17,6 +29,14 @@ export interface AmbiguityBreakdown {
   context?: DimensionAssessment;
 }
 
+export interface ArchitectAmbiguityBreakdown {
+  domain_scope: DimensionAssessment;
+  work_units: DimensionAssessment;
+  team_topology: DimensionAssessment;
+  verification_strategy: DimensionAssessment;
+  user_operating_style: DimensionAssessment;
+}
+
 export interface BrownfieldContext {
   projectType: ProjectType;
   scannedAt: string;
@@ -25,35 +45,89 @@ export interface BrownfieldContext {
   files: string[];
 }
 
-export interface InterviewRound {
+export interface HarnessSnapshot {
+  slug: string;
+  harnessGoal: string;
+  workUnits: string[];
+  teamTopology: string[];
+  verificationStrategy: string[];
+  verificationEmphasis: string[];
+  agentNames: string[];
+  skillNames: string[];
+  sourceSeedId: string;
+  sourceBlueprintId: string;
+  activatedAt: string;
+}
+
+export interface RepoProfile {
+  profileId: string;
+  scannedAt: string;
+  summary: string;
+  stack: string[];
+  packageManager: string;
+  scripts: Record<string, string>;
+  topLevelDirectories: string[];
+  likelyBoundaries: string[];
+  conventions: string[];
+  riskSurfaces: string[];
+  relevantFiles: string[];
+}
+
+export interface AdaptiveInterviewRound<TDimension extends string, TBreakdown> {
   roundNumber: number;
-  targeting: DimensionName;
+  targeting: TDimension;
   rationale: string;
   question: string;
   answer: string;
   askedAt: string;
   answeredAt: string;
   ambiguity: number;
-  breakdown: AmbiguityBreakdown;
-  weakestDimension: DimensionName;
+  breakdown: TBreakdown;
+  weakestDimension: TDimension;
   weakestDimensionRationale: string;
 }
 
-export interface InterviewState {
+export interface InterviewRound
+  extends AdaptiveInterviewRound<FeatureDimensionName, AmbiguityBreakdown> {}
+
+export interface ArchitectInterviewRound
+  extends AdaptiveInterviewRound<ArchitectDimensionName, ArchitectAmbiguityBreakdown> {}
+
+export interface BaseAdaptiveInterviewState<TLane extends InterviewLane, TDimension extends string, TRound> {
   interviewId: string;
+  lane: TLane;
   status: InterviewStatus;
   initialIdea: string;
-  projectType: ProjectType;
   threshold: number;
   currentAmbiguity: number;
-  brownfieldContext?: BrownfieldContext;
-  rounds: InterviewRound[];
+  dimensions: TDimension[];
+  weights: Partial<Record<TDimension, number>>;
+  rounds: TRound[];
   createdAt: string;
   updatedAt: string;
 }
 
+export interface InterviewState
+  extends BaseAdaptiveInterviewState<"feature", FeatureDimensionName, InterviewRound> {
+  projectType: ProjectType;
+  brownfieldContext?: BrownfieldContext;
+  activeHarness?: HarnessSnapshot | null;
+}
+
+export interface ArchitectInterviewState
+  extends BaseAdaptiveInterviewState<"architect", ArchitectDimensionName, ArchitectInterviewRound> {
+  repoProfileId: string;
+  repoProfileSummary: string;
+}
+
 export interface QuestionDraft {
-  targeting: DimensionName;
+  targeting: FeatureDimensionName;
+  rationale: string;
+  question: string;
+}
+
+export interface ArchitectQuestionDraft {
+  targeting: ArchitectDimensionName;
   rationale: string;
   question: string;
 }
@@ -64,6 +138,16 @@ export interface ScoreDraft {
   criteria: DimensionAssessment;
   context?: DimensionAssessment;
   weakestDimension: DimensionName;
+  weakestDimensionRationale: string;
+}
+
+export interface ArchitectScoreDraft {
+  domain_scope: DimensionAssessment;
+  work_units: DimensionAssessment;
+  team_topology: DimensionAssessment;
+  verification_strategy: DimensionAssessment;
+  user_operating_style: DimensionAssessment;
+  weakestDimension: ArchitectDimensionName;
   weakestDimensionRationale: string;
 }
 
@@ -83,6 +167,17 @@ export interface SeedBlueprint {
   transcriptSummary: string[];
   technicalContext: string[];
   ontology: OntologyEntity[];
+}
+
+export interface AgentBlueprint {
+  name: string;
+  role: string;
+  responsibilities: string[];
+}
+
+export interface SkillBlueprint {
+  name: string;
+  purpose: string;
 }
 
 export interface SpecDocument extends SeedBlueprint {
@@ -121,6 +216,85 @@ export interface SeedDocument {
   };
 }
 
+export interface HarnessBlueprint {
+  title: string;
+  harnessGoal: string;
+  repoProfileSummary: string[];
+  workUnits: string[];
+  teamTopology: string[];
+  verificationStrategy: string[];
+  userOperatingStyle: string[];
+  agentRoster: AgentBlueprint[];
+  skillRoster: SkillBlueprint[];
+  orchestrationProtocol: string[];
+  constraints: string[];
+  generationTargets: string[];
+}
+
+export interface HarnessBlueprintDocument extends HarnessBlueprint {
+  metadata: {
+    blueprintId: string;
+    seedId: string;
+    architectInterviewId: string;
+    repoProfileId: string;
+    ambiguityScore: number;
+    forced: boolean;
+    createdAt: string;
+  };
+}
+
+export interface HarnessSeedDocument {
+  harness_goal: string;
+  repo_profile: {
+    stack: string[];
+    package_manager: string;
+    scripts: Record<string, string>;
+    top_level_directories: string[];
+    likely_boundaries: string[];
+    conventions: string[];
+    risk_surfaces: string[];
+    relevant_files: string[];
+  };
+  work_units: string[];
+  agents: AgentBlueprint[];
+  skills: SkillBlueprint[];
+  verification: {
+    strategy: string[];
+    emphasis: string[];
+  };
+  generation_targets: {
+    slug: string;
+    claude_agents: boolean;
+    claude_skills: boolean;
+    codex_skills: boolean;
+  };
+  metadata: {
+    seed_id: string;
+    blueprint_id: string;
+    interview_id: string;
+    ambiguity_score: number;
+    forced: boolean;
+    created_at: string;
+  };
+}
+
+export interface GeneratedHarnessManifest {
+  blueprintId: string;
+  seedId: string;
+  slug: string;
+  generatedAt: string;
+  files: Array<{
+    path: string;
+    sha1: string;
+  }>;
+  conflicts: string[];
+}
+
+export interface ActiveHarnessDocument extends HarnessSnapshot {
+  sourceSeedPath: string;
+  sourceBlueprintPath: string | null;
+}
+
 export interface CommandResult {
   command: string;
   exitCode: number;
@@ -139,6 +313,7 @@ export interface ReviewVerdict {
   summary: string;
   failureSignature: string | null;
   findings: string[];
+  rejectionCategory?: RejectionCategory | null;
   followUpStories?: FollowUpStoryDraft[];
 }
 
@@ -150,11 +325,21 @@ export interface QaVerdict {
   suggestedVerificationCommands?: string[];
 }
 
+export interface ReopenHistoryEntry {
+  target: "feature" | "harness";
+  stateId: string;
+  reason: RejectionCategory;
+  command: string;
+  recordedAt: string;
+}
+
 export interface UserStory {
   id: string;
   title: string;
   acceptanceCriteria: string[];
   verificationCommands: string[];
+  boundaryHints?: string[];
+  verificationFocus?: string[];
   passes: boolean;
   attempts: number;
   lastReviewerVerdict: "pending" | "approved" | "rejected" | "blocked";
@@ -164,7 +349,9 @@ export interface PrdDocument {
   sourceSeedId: string;
   sourceSpecPath: string;
   sourceSeedPath: string;
+  goal: string;
   status: LoopStatus;
+  activeHarness?: HarnessSnapshot | null;
   stories: UserStory[];
 }
 
@@ -172,9 +359,14 @@ export interface LoopState {
   runId: string;
   status: LoopStatus;
   currentStoryId: string | null;
+  reopenTarget?: "feature" | "harness" | null;
+  reopenStateId?: string | null;
+  suggestedNextCommand?: string | null;
+  reopenReason?: RejectionCategory | null;
   createdAt: string;
   updatedAt: string;
   repeatedFailures: Record<string, { signature: string; count: number }>;
+  reopenHistory: ReopenHistoryEntry[];
 }
 
 export interface VerificationEntry {
@@ -192,6 +384,11 @@ export interface RunArtifacts {
   loopState: LoopState;
   progress: string;
   verification: VerificationEntry[];
+}
+
+export interface OrchestratorRunResult extends RunArtifacts {
+  runId: string;
+  reopenHistory: ReopenHistoryEntry[];
 }
 
 export interface CodexExecOptions {

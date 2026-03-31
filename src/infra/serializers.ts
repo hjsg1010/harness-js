@@ -1,6 +1,11 @@
 import YAML from "yaml";
 
-import type { SeedDocument, SpecDocument } from "../core/types.js";
+import type {
+  HarnessBlueprintDocument,
+  HarnessSeedDocument,
+  SeedDocument,
+  SpecDocument
+} from "../core/types.js";
 
 function renderList(values: string[]): string {
   if (values.length === 0) {
@@ -86,6 +91,80 @@ export function parseSeedYaml(content: string): SeedDocument {
   return YAML.parse(content) as SeedDocument;
 }
 
+export function renderHarnessBlueprintMarkdown(blueprint: HarnessBlueprintDocument): string {
+  return `# ${blueprint.title}
+
+## Metadata
+- Blueprint ID: ${blueprint.metadata.blueprintId}
+- Seed ID: ${blueprint.metadata.seedId}
+- Architect Interview ID: ${blueprint.metadata.architectInterviewId}
+- Repo Profile ID: ${blueprint.metadata.repoProfileId}
+- Ambiguity Score: ${blueprint.metadata.ambiguityScore.toFixed(2)}
+- Forced: ${blueprint.metadata.forced ? "yes" : "no"}
+- Created At: ${blueprint.metadata.createdAt}
+
+## Harness Goal
+${blueprint.harnessGoal}
+
+## Repo Profile Summary
+${renderList(blueprint.repoProfileSummary)}
+## Work Units
+${renderList(blueprint.workUnits)}
+## Team Topology
+${renderList(blueprint.teamTopology)}
+## Verification Strategy
+${renderList(blueprint.verificationStrategy)}
+## User Operating Style
+${renderList(blueprint.userOperatingStyle)}
+## Agent Roster
+${renderAgentRoster(blueprint)}
+## Skill Roster
+${renderSkillRoster(blueprint)}
+## Orchestration Protocol
+${renderList(blueprint.orchestrationProtocol)}
+## Constraints
+${renderList(blueprint.constraints)}
+## Generation Targets
+${renderList(blueprint.generationTargets)}
+`;
+}
+
+export function parseHarnessBlueprintMarkdown(content: string): HarnessBlueprintDocument {
+  const sections = splitMarkdownSections(content);
+  const metadata = parseMetadataSection(sections.Metadata ?? "");
+  return {
+    title: extractTitle(content),
+    harnessGoal: (sections["Harness Goal"] ?? "").trim(),
+    repoProfileSummary: parseBulletSection(sections["Repo Profile Summary"] ?? ""),
+    workUnits: parseBulletSection(sections["Work Units"] ?? ""),
+    teamTopology: parseBulletSection(sections["Team Topology"] ?? ""),
+    verificationStrategy: parseBulletSection(sections["Verification Strategy"] ?? ""),
+    userOperatingStyle: parseBulletSection(sections["User Operating Style"] ?? ""),
+    agentRoster: parseAgentRosterSection(sections["Agent Roster"] ?? ""),
+    skillRoster: parseSkillRosterSection(sections["Skill Roster"] ?? ""),
+    orchestrationProtocol: parseBulletSection(sections["Orchestration Protocol"] ?? ""),
+    constraints: parseBulletSection(sections.Constraints ?? ""),
+    generationTargets: parseBulletSection(sections["Generation Targets"] ?? ""),
+    metadata: {
+      blueprintId: metadata["Blueprint ID"] ?? "",
+      seedId: metadata["Seed ID"] ?? "",
+      architectInterviewId: metadata["Architect Interview ID"] ?? "",
+      repoProfileId: metadata["Repo Profile ID"] ?? "",
+      ambiguityScore: Number(metadata["Ambiguity Score"] ?? "1"),
+      forced: (metadata.Forced ?? "no").toLowerCase() === "yes",
+      createdAt: metadata["Created At"] ?? ""
+    }
+  };
+}
+
+export function renderHarnessSeedYaml(seed: HarnessSeedDocument): string {
+  return `${YAML.stringify(seed)}`;
+}
+
+export function parseHarnessSeedYaml(content: string): HarnessSeedDocument {
+  return YAML.parse(content) as HarnessSeedDocument;
+}
+
 function extractTitle(content: string): string {
   const line = content.split("\n").find((entry) => entry.startsWith("# "));
   return line?.slice(2).trim() ?? "Untitled Spec";
@@ -129,6 +208,55 @@ function parseMetadataSection(content: string): Record<string, string> {
     metadata[key.trim()] = rest.join(":").trim();
   }
   return metadata;
+}
+
+function renderAgentRoster(blueprint: HarnessBlueprintDocument): string {
+  if (blueprint.agentRoster.length === 0) {
+    return "- None\n";
+  }
+  return `${blueprint.agentRoster
+    .map(
+      (agent) =>
+        `- ${agent.name}: ${agent.role}${agent.responsibilities.length > 0 ? ` | ${agent.responsibilities.join(", ")}` : ""}`
+    )
+    .join("\n")}\n`;
+}
+
+function renderSkillRoster(blueprint: HarnessBlueprintDocument): string {
+  if (blueprint.skillRoster.length === 0) {
+    return "- None\n";
+  }
+  return `${blueprint.skillRoster
+    .map((skill) => `- ${skill.name}: ${skill.purpose}`)
+    .join("\n")}\n`;
+}
+
+function parseAgentRosterSection(content: string) {
+  return parseBulletSection(content)
+    .map((line) => {
+      const [nameAndRole, responsibilitiesRaw] = line.split("|").map((part) => part.trim());
+      const [name, role] = nameAndRole.split(":").map((part) => part.trim());
+      return {
+        name: name ?? "",
+        role: role ?? "",
+        responsibilities: responsibilitiesRaw
+          ? responsibilitiesRaw.split(",").map((entry) => entry.trim()).filter(Boolean)
+          : []
+      };
+    })
+    .filter((agent) => agent.name);
+}
+
+function parseSkillRosterSection(content: string) {
+  return parseBulletSection(content)
+    .map((line) => {
+      const [name, purpose] = line.split(":").map((part) => part.trim());
+      return {
+        name: name ?? "",
+        purpose: purpose ?? ""
+      };
+    })
+    .filter((skill) => skill.name);
 }
 
 function parseOntologySection(content: string) {

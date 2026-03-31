@@ -2,7 +2,9 @@
   "sourceSeedId": "seed_fixed",
   "sourceSpecPath": "/tmp/spec.md",
   "sourceSeedPath": "/tmp/seed.yaml",
+  "goal": "Build a small CLI that interviews the user and writes a seed file.",
   "status": "pending",
+  "activeHarness": null,
   "stories": [
     {
       "id": "story_001",

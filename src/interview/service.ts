@@ -7,53 +7,46 @@ import type {
   ScoreDraft
 } from "../core/types.js";
 import { clampScore, createId, nowIso } from "../core/utils.js";
-import { loadInterviewState, saveInterviewState } from "../infra/filesystem.js";
+import {
+  loadInterviewState,
+  saveInterviewState,
+  tryLoadActiveHarness
+} from "../infra/filesystem.js";
+import {
+  createQuestionSchema,
+  createScoreSchema,
+  formatAdaptiveProgress,
+  renderHarnessPromptBlock
+} from "./adaptive.js";
 import { scanBrownfieldContext } from "./brownfield.js";
 
-const QUESTION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["targeting", "rationale", "question"],
-  properties: {
-    targeting: { type: "string", enum: ["goal", "constraints", "criteria", "context"] },
-    rationale: { type: "string" },
-    question: { type: "string" }
-  }
-} satisfies Record<string, unknown>;
-
-const SCORE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "goal",
-    "constraints",
-    "criteria",
-    "weakestDimension",
-    "weakestDimensionRationale"
-  ],
-  properties: {
-    goal: assessmentSchema(),
-    constraints: assessmentSchema(),
-    criteria: assessmentSchema(),
-    context: assessmentSchema(),
-    weakestDimension: { type: "string", enum: ["goal", "constraints", "criteria", "context"] },
-    weakestDimensionRationale: { type: "string" }
-  }
-} satisfies Record<string, unknown>;
+const GREENFIELD_DIMENSIONS = ["goal", "constraints", "criteria"] as const;
+const BROWNFIELD_DIMENSIONS = ["goal", "constraints", "criteria", "context"] as const;
 
 export class InterviewService {
   constructor(private readonly runner: CodexRunner) {}
 
   async create(initialIdea: string, cwd: string): Promise<InterviewState> {
     const brownfieldContext = await scanBrownfieldContext(cwd);
+    const activeHarness = await tryLoadActiveHarness(cwd);
     const state: InterviewState = {
       interviewId: createId("interview"),
+      lane: "feature",
       status: "in_progress",
       initialIdea,
       projectType: brownfieldContext.projectType,
       threshold: INTERVIEW_THRESHOLD,
       currentAmbiguity: 1,
+      dimensions:
+        brownfieldContext.projectType === "brownfield"
+          ? [...BROWNFIELD_DIMENSIONS]
+          : [...GREENFIELD_DIMENSIONS],
+      weights:
+        brownfieldContext.projectType === "brownfield"
+          ? { ...BROWNFIELD_WEIGHTS }
+          : { ...GREENFIELD_WEIGHTS },
       brownfieldContext,
+      activeHarness,
       rounds: [],
       createdAt: nowIso(),
       updatedAt: nowIso()
@@ -67,10 +60,14 @@ export class InterviewService {
   }
 
   async nextQuestion(state: InterviewState, cwd: string): Promise<QuestionDraft> {
-    return this.runner.execJson<QuestionDraft>(this.buildQuestionPrompt(state), QUESTION_SCHEMA, {
-      cwd,
-      sandbox: "read-only"
-    });
+    return this.runner.execJson<QuestionDraft>(
+      this.buildQuestionPrompt(state),
+      this.getQuestionSchema(state),
+      {
+        cwd,
+        sandbox: "read-only"
+      }
+    );
   }
 
   async answer(
@@ -81,7 +78,7 @@ export class InterviewService {
   ): Promise<InterviewState> {
     const scored = await this.runner.execJson<ScoreDraft>(
       this.buildScorePrompt(state, draft, answer),
-      SCORE_SCHEMA,
+      this.getScoreSchema(state),
       {
         cwd,
         sandbox: "read-only"
@@ -123,29 +120,16 @@ export class InterviewService {
   }
 
   formatProgress(state: InterviewState): string {
-    const latest = state.rounds[state.rounds.length - 1];
-    if (!latest) {
-      return `Interview ${state.interviewId} created. Ambiguity: 100%.`;
-    }
-
-    const rows = [
-      ["Goal", latest.breakdown.goal.score, latest.breakdown.goal.gap],
-      ["Constraints", latest.breakdown.constraints.score, latest.breakdown.constraints.gap],
-      ["Criteria", latest.breakdown.criteria.score, latest.breakdown.criteria.gap]
-    ];
-    if (latest.breakdown.context) {
-      rows.push(["Context", latest.breakdown.context.score, latest.breakdown.context.gap]);
-    }
-
-    const formattedRows = rows
-      .map(([name, score, gap]) => `- ${name}: ${(Number(score) * 100).toFixed(0)}% | ${gap}`)
-      .join("\n");
-
-    return `Round ${latest.roundNumber} complete.\n${formattedRows}\n- Ambiguity: ${(
-      latest.ambiguity * 100
-    ).toFixed(0)}%\n- Next target: ${latest.weakestDimension} | ${
-      latest.weakestDimensionRationale
-    }`;
+    return formatAdaptiveProgress(
+      state.rounds[state.rounds.length - 1],
+      {
+        goal: "Goal",
+        constraints: "Constraints",
+        criteria: "Criteria",
+        context: "Context"
+      },
+      `Interview ${state.interviewId} created. Ambiguity: 100%.`
+    );
   }
 
   private computeAmbiguity(state: InterviewState, breakdown: AmbiguityBreakdown): number {
@@ -185,6 +169,7 @@ Threshold: ${state.threshold}
 Current Ambiguity: ${state.currentAmbiguity}
 Brownfield Context:
 ${state.brownfieldContext?.summary ?? "None"}
+${renderHarnessPromptBlock(state.activeHarness)}
 
 Previous Rounds:
 ${transcript || "None"}
@@ -211,6 +196,7 @@ ${state.initialIdea}
 Project Type: ${state.projectType}
 Brownfield Context:
 ${state.brownfieldContext?.summary ?? "None"}
+${renderHarnessPromptBlock(state.activeHarness)}
 
 Transcript:
 ${transcript || "No previous rounds"}
@@ -229,17 +215,16 @@ For each dimension provide score, justification, and gap.
 Also return weakestDimension and weakestDimensionRationale.
 `;
   }
-}
 
-function assessmentSchema() {
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["score", "justification", "gap"],
-    properties: {
-      score: { type: "number" },
-      justification: { type: "string" },
-      gap: { type: "string" }
-    }
-  };
+  private getQuestionSchema(state: InterviewState) {
+    return createQuestionSchema(
+      state.projectType === "brownfield" ? BROWNFIELD_DIMENSIONS : GREENFIELD_DIMENSIONS
+    );
+  }
+
+  private getScoreSchema(state: InterviewState) {
+    return createScoreSchema(
+      state.projectType === "brownfield" ? BROWNFIELD_DIMENSIONS : GREENFIELD_DIMENSIONS
+    );
+  }
 }

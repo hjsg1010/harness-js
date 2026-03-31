@@ -33,4 +33,5 @@ bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" interview --res
 
 ## 참고
 
+- active harness가 있으면 interview prompt가 그 harness의 terminology와 verification emphasis를 반영한다.
 - marketplace로 설치한 경우 runner가 first run에 `npm install`, `npm run build`를 자동으로 수행할 수 있다.

@@ -1,6 +1,6 @@
 ---
 name: harness-orchestrator
-description: "Run the Hybrid Harness end-to-end pipeline from idea to verified completion. Trigger this when the user wants interview, immutable seed generation, and Ralph execution in one flow."
+description: "Run the Hybrid Harness end-to-end feature pipeline from idea to verified completion. Trigger this when the user wants interview, immutable seed generation, Ralph execution, and automatic reopen handling in one flow."
 ---
 
 # Harness Orchestrator
@@ -16,4 +16,4 @@ node dist/cli.js run "<spec-or-seed-path>"
 
 ## Why
 
-This wrapper keeps the interview/specification stage and the Ralph loop in a single harness while preserving immutable spec/seed artifacts between them.
+This wrapper keeps the feature lane in one flow: adaptive interview, immutable seed generation, Ralph execution, and critic-driven reopen handling. If an active repo-specific harness exists, the run uses it automatically for prompt shaping.

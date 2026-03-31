@@ -13,6 +13,7 @@ import {
   renderSeedYaml,
   renderSpecMarkdown
 } from "../infra/serializers.js";
+import { renderHarnessPromptBlock } from "../interview/adaptive.js";
 
 const BLUEPRINT_SCHEMA = {
   type: "object",
@@ -214,6 +215,7 @@ Project Type: ${interview.projectType}
 Current ambiguity: ${interview.currentAmbiguity.toFixed(2)}
 Brownfield Context:
 ${interview.brownfieldContext?.summary ?? "None"}
+${renderHarnessPromptBlock(interview.activeHarness)}
 
 Transcript:
 ${transcript}
@@ -224,6 +226,8 @@ Requirements:
 - Acceptance criteria must be concrete and testable.
 - Non-goals must make scope boundaries explicit.
 - Technical context must mention brownfield evidence when available.
+- Treat the active harness as a verification bias, not a hard constraint.
+- Reuse active harness terminology for work units, team topology, and verification emphasis when it clarifies the spec.
 `;
   }
 }

@@ -16,4 +16,4 @@ node dist/cli.js ralph --resume <run-id>
 
 ## Why
 
-This loop keeps mutable work inside `.harness/runs/`, performs incremental QA after each story, and blocks completion until reviewer and critic gates pass.
+This loop keeps mutable work inside `.harness/runs/`, performs incremental QA after each story, and blocks completion until reviewer and critic gates pass. If the final critic detects requirement or harness ambiguity, the run records a synthetic reopen state and prints the next command instead of silently looping forever.

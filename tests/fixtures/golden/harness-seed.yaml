@@ -1,0 +1,87 @@
+harness_goal: Build a repo-specific harness for multi-angle research and synthesis.
+repo_profile:
+  stack:
+    - typescript
+  package_manager: npm
+  scripts:
+    build: npm run build
+    test: npm test
+  top_level_directories:
+    - src
+    - tests
+    - docs
+  likely_boundaries:
+    - src
+    - tests
+    - docs
+  conventions:
+    - local artifacts
+  risk_surfaces:
+    - generated assets
+  relevant_files:
+    - README.md
+    - src/cli.ts
+work_units:
+  - web-search
+  - paper-review
+  - community-review
+  - synthesis
+agents:
+  - name: orchestrator
+    role: Coordinate the research team
+    responsibilities:
+      - dispatch work
+      - merge outputs
+  - name: web-researcher
+    role: Gather web evidence
+    responsibilities:
+      - search web
+      - collect links
+  - name: paper-analyst
+    role: Review academic sources
+    responsibilities:
+      - find papers
+      - summarize evidence
+  - name: community-analyst
+    role: Review community responses
+    responsibilities:
+      - inspect forums
+      - summarize sentiment
+  - name: synthesizer
+    role: Write final synthesis
+    responsibilities:
+      - compare evidence
+      - draft report
+skills:
+  - name: research-orchestrator
+    purpose: Coordinate team workflow
+  - name: research-web
+    purpose: Search and summarize web sources
+  - name: research-papers
+    purpose: Review papers and academic evidence
+  - name: research-community
+    purpose: Review community feedback
+  - name: research-synthesis
+    purpose: Write synthesis report
+verification:
+  strategy:
+    - cross-check citations
+    - compare findings across sources
+    - require final synthesis checklist
+  emphasis:
+    - single command entrypoint
+    - preserve intermediate artifacts
+    - cross-check citations
+    - compare findings across sources
+generation_targets:
+  slug: research-harness
+  claude_agents: true
+  claude_skills: true
+  codex_skills: true
+metadata:
+  seed_id: harness_seed_fixed
+  blueprint_id: blueprint_fixed
+  interview_id: architect_fixed
+  ambiguity_score: 0.14
+  forced: false
+  created_at: 2026-03-31T00:00:00.000Z

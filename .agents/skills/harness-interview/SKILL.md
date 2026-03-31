@@ -16,4 +16,4 @@ node dist/cli.js interview --resume <interview-id>
 
 ## Why
 
-The interview lane exists to reduce ambiguity before code execution. It writes resumable state into `.harness/interviews/` and only hands off once the idea is concrete enough for immutable seed generation.
+The interview lane exists to reduce ambiguity before code execution. It writes resumable state into `.harness/interviews/` and only hands off once the idea is concrete enough for immutable seed generation. If an active repo-specific harness exists, the interview prompt adopts that harness terminology and verification emphasis.
