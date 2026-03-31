@@ -2,6 +2,18 @@
 
 `Ouroboros` 스타일의 specification-first interview로 요구사항을 고정하고, `ralph` 스타일의 story-by-story verification loop로 구현과 검증을 끝까지 밀어붙이는 TypeScript CLI입니다.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [어디서 시작하면 되나?](#어디서-시작하면-되나)
+- [The Loop](#the-loop)
+- [Commands](#commands)
+- [결과물과 상태 파일](#결과물과-상태-파일)
+- [Claude / Codex에서 쓰는 방법](#claude--codex에서-쓰는-방법)
+- [Verification](#verification)
+- [현재 한계와 Prerequisites](#현재-한계와-prerequisites)
+- [Why This Exists](#why-this-exists)
+
 ## Quick Start
 
 ### 1. Prerequisites
@@ -59,6 +71,13 @@ harness run "I want to build a task management CLI"
 ```bash
 harness ralph .harness/seeds/example-seed.yaml
 ```
+
+빠르게 기준만 잡으면:
+
+- 아이디어가 모호하면 `harness interview "<idea>"`
+- interview 결과를 immutable artifact로 고정하려면 `harness seed <interview-id>`
+- 이미 `spec.md`나 `seed.yaml`이 있으면 `harness ralph <path>`
+- 처음부터 끝까지 한 번에 돌리려면 `harness run "<idea-or-path>"`
 
 ## 어디서 시작하면 되나?
 
@@ -128,7 +147,7 @@ harness run "Build a release checklist assistant"
 
 ## The Loop
 
-Hybrid Harness는 다음 루프를 고정된 실행 경로로 사용합니다.
+Hybrid Harness는 현재 아래 실행 경로를 고정된 v1 loop로 사용합니다.
 
 ```text
 idea
@@ -141,6 +160,8 @@ idea
        -> story verification
        -> final critic
 ```
+
+현재 구현은 `Ouroboros`의 full evolutionary reopen loop를 모두 재현한 상태는 아닙니다. 지금은 `interview -> seed -> PRD bridge -> Ralph loop`가 구현 범위이고, repo-specific harness architect lane도 아직 포함되어 있지 않습니다.
 
 각 단계의 역할은 다음과 같습니다.
 
@@ -255,6 +276,7 @@ node dist/cli.js --help
 - `seed`는 ambiguity threshold `0.20`을 기준으로 생성 가능 여부를 판단합니다.
 - reviewer/critic 반복 실패가 같은 signature로 3회 누적되면 run을 `blocked` 상태로 남기고 중단합니다.
 - 현재 테스트는 fake runner를 사용하므로, live provider round-trip 자체를 대신하지는 않습니다.
+- `Ouroboros`의 outer evolutionary loop와 repo-specific harness generator interview lane은 아직 구현되지 않았습니다.
 
 ## Why This Exists
 
