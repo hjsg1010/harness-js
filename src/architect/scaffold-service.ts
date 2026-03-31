@@ -133,6 +133,12 @@ export class HarnessScaffoldService {
       slug,
       seed
     );
+    files[join(".harness/generated-harness", slug, "references", "artifact-contracts.md")] =
+      renderArtifactContracts(seed);
+    files[join(".harness/generated-harness", slug, "references", "handoff-protocol.md")] =
+      renderHandoffProtocol(slug, seed);
+    files[join(".harness/generated-harness", slug, "references", "verification-policy.md")] =
+      renderVerificationPolicy(seed);
 
     return files;
   }
@@ -328,10 +334,14 @@ Expected artifacts:
 - _workspace/* handoff notes for each phase
 - ${validationChecklistPath}
 - .harness/generated-harness/${slug}/references/overview.md
+- .harness/generated-harness/${slug}/references/artifact-contracts.md
+- .harness/generated-harness/${slug}/references/handoff-protocol.md
+- .harness/generated-harness/${slug}/references/verification-policy.md
 
 Validation checklist:
 - Confirm each handoff points to the next responsible role
 - Confirm verification steps are runnable in the current repository
+- Confirm the reference contracts still match the generated work units
 
 Execution:
 \`${command}\`
@@ -361,5 +371,50 @@ Expected artifacts:
 Validation checklist:
 - Confirm the output stays within the assigned work unit
 - Confirm the handoff names the next expected verification step
+`;
+}
+
+function renderArtifactContracts(seed: HarnessSeedDocument): string {
+  return `# Artifact Contracts
+
+Expected Artifacts:
+${seed.work_units
+  .map((workUnit) => `- ${workUnit}: produce a deterministic artifact or handoff note for this unit`)
+  .join("\n") || "- None"}
+
+Agent Ownership:
+${seed.agents
+  .map((agent) => `- ${agent.name}: ${agent.responsibilities.join(", ") || "owned execution scope"}`)
+  .join("\n") || "- None"}
+`;
+}
+
+function renderHandoffProtocol(slug: string, seed: HarnessSeedDocument): string {
+  return `# Handoff Protocol
+
+- Store intermediate artifacts under _workspace.
+- Use the filename pattern: phase_role_artifact.ext
+- Prefix files with the current sequence so later agents can sort them deterministically.
+- Mention the next responsible role and verification step in every handoff note.
+
+Roles:
+${seed.agents.map((agent) => `- ${slug}-${agent.name}`).join("\n") || "- None"}
+`;
+}
+
+function renderVerificationPolicy(seed: HarnessSeedDocument): string {
+  return `# Verification Policy
+
+Verification strategy:
+${seed.verification.strategy.map((item) => `- ${item}`).join("\n") || "- None"}
+
+Preferred command ordering:
+- npm run typecheck
+- npm test
+- npm run build
+- npm run lint
+
+Emphasis:
+${seed.verification.emphasis.map((item) => `- ${item}`).join("\n") || "- None"}
 `;
 }

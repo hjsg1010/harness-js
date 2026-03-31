@@ -197,6 +197,7 @@ describe("RalphService", () => {
     expect(result.loopState.reopenStateId).toBeTruthy();
     expect(result.loopState.reopenHistory).toHaveLength(1);
     expect(result.loopState.reopenHistory[0]?.reason).toBe("requirement_ambiguity");
+    expect(result.loopState.suggestedQuestionFocus?.[0]).toContain("output format");
   });
 
   it("falls back to requirement ambiguity when the critic asks for clarification without a category", async () => {
@@ -230,6 +231,7 @@ describe("RalphService", () => {
     expect(result.loopState.status).toBe("reopen_required");
     expect(result.loopState.reopenTarget).toBe("feature");
     expect(result.loopState.reopenReason).toBe("requirement_ambiguity");
+    expect(result.loopState.suggestedQuestionFocus?.[0]).toContain("Clarify");
   });
 
   it("falls back to a harness reopen when the critic reports a harness design gap without a category", async () => {
@@ -263,5 +265,6 @@ describe("RalphService", () => {
     expect(result.loopState.status).toBe("reopen_required");
     expect(result.loopState.reopenTarget).toBe("harness");
     expect(result.loopState.reopenReason).toBe("harness_design_gap");
+    expect(result.loopState.suggestedRepairFocus?.[0]).toContain("verification strategy");
   });
 });

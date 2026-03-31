@@ -205,9 +205,7 @@ async function runRalphCommand(
     const artifacts = await loadRunArtifacts(cwd, resume);
     const result = await ralphService.execute(cwd, resume, artifacts);
     console.log(`Run ${resume} finished with status: ${result.loopState.status}`);
-    if (result.loopState.status === "reopen_required" && result.loopState.suggestedNextCommand) {
-      console.log(`Next step: ${result.loopState.suggestedNextCommand}`);
-    }
+    printReopenGuidance(result.loopState);
     return;
   }
 
@@ -226,9 +224,7 @@ async function runRalphCommand(
   };
   const result = await ralphService.execute(cwd, runId, artifacts);
   console.log(`Run ${runId} finished with status: ${result.loopState.status}`);
-  if (result.loopState.status === "reopen_required" && result.loopState.suggestedNextCommand) {
-    console.log(`Next step: ${result.loopState.suggestedNextCommand}`);
-  }
+  printReopenGuidance(result.loopState);
 }
 
 async function runCompositeCommand(
@@ -335,12 +331,7 @@ async function runCompositeCommand(
     }
 
     console.log(`Run ${currentRun.runId} finished with status: ${currentRun.result.loopState.status}`);
-    if (
-      currentRun.result.loopState.status === "reopen_required" &&
-      currentRun.result.loopState.suggestedNextCommand
-    ) {
-      console.log(`Next step: ${currentRun.result.loopState.suggestedNextCommand}`);
-    }
+    printReopenGuidance(currentRun.result.loopState);
   } catch (error) {
     if (error instanceof Error && error.message === "__quit__") {
       return;
@@ -357,6 +348,37 @@ function readFlagValue(argv: string[], flag: string): string | undefined {
     return undefined;
   }
   return argv[index + 1];
+}
+
+function printReopenGuidance(
+  loopState: {
+    status: string;
+    suggestedNextCommand?: string | null;
+    suggestedQuestionFocus?: string[] | null;
+    suggestedRepairFocus?: string[] | null;
+  }
+): void {
+  if (loopState.status !== "reopen_required") {
+    return;
+  }
+
+  if (loopState.suggestedNextCommand) {
+    console.log(`Next step: ${loopState.suggestedNextCommand}`);
+  }
+
+  if (loopState.suggestedQuestionFocus && loopState.suggestedQuestionFocus.length > 0) {
+    console.log("Question focus:");
+    for (const item of loopState.suggestedQuestionFocus) {
+      console.log(`- ${item}`);
+    }
+  }
+
+  if (loopState.suggestedRepairFocus && loopState.suggestedRepairFocus.length > 0) {
+    console.log("Repair focus:");
+    for (const item of loopState.suggestedRepairFocus) {
+      console.log(`- ${item}`);
+    }
+  }
 }
 
 function positionalArgs(argv: string[], flagsWithValues: Set<string>): string[] {

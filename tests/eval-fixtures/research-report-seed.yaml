@@ -1,0 +1,20 @@
+goal: Build a CLI that writes a markdown report and keeps the output path stable.
+task_type: code
+constraints:
+  - Use local files only
+acceptance_criteria:
+  - The CLI writes a markdown report file and keeps the output path stable across reruns.
+ontology_schema:
+  name: Research CLI
+  description: Research CLI output ontology
+  fields:
+    - name: Report
+      type: artifact
+      description: Markdown report artifact
+      required: true
+metadata:
+  seed_id: eval_seed_fixed
+  interview_id: eval_interview_fixed
+  ambiguity_score: 0.12
+  forced: false
+  created_at: 2026-03-31T00:00:00.000Z

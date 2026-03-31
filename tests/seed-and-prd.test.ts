@@ -162,14 +162,95 @@ describe("SeedService and PrdService", () => {
     expect(result.prd.stories[0]?.boundaryHints).toContain("markdown-report");
     expect(result.prd.stories[0]?.verificationFocus).toContain("CLI contracts");
     expect(result.prd.stories[0]?.verificationFocus).toContain("path consistency");
+    expect(result.prd.stories[0]?.workUnit).toBe("markdown-report");
+    expect(result.prd.stories[0]?.expectedArtifacts).toContain("report.md");
+    expect(result.prd.stories[0]?.handoffContract?.[0]).toContain("_workspace");
     expect(result.prd.stories[0]?.verificationCommands).toContain("npm run typecheck");
     expect(result.prd.stories[0]?.verificationCommands).toContain("npm run build");
     expect(result.prd.stories[1]?.boundaryHints).toContain("cli-contracts");
 
     const persisted = JSON.parse(
       await readFile(join(cwd, ".harness", "runs", result.runId, "prd.json"), "utf8")
-    ) as { stories: Array<{ boundaryHints?: string[]; verificationFocus?: string[] }> };
+    ) as {
+      stories: Array<{
+        boundaryHints?: string[];
+        verificationFocus?: string[];
+        expectedArtifacts?: string[];
+        handoffContract?: string[];
+        workUnit?: string | null;
+      }>;
+    };
     expect(persisted.stories[0]?.boundaryHints).toContain("markdown-report");
     expect(persisted.stories[0]?.verificationFocus).toContain("CLI contracts");
+    expect(persisted.stories[0]?.expectedArtifacts).toContain("report.md");
+    expect(persisted.stories[0]?.workUnit).toBe("markdown-report");
+  });
+
+  it("splits mixed acceptance criteria into repo-aware stories when work units imply separate deliverables", async () => {
+    const cwd = await createTempDir();
+    tempDirs.push(cwd);
+
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "fixture",
+          scripts: {
+            test: "vitest run",
+            build: "tsc -p tsconfig.json",
+            typecheck: "tsc -p tsconfig.json --noEmit"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const seed: SeedDocument = {
+      goal: "Build a CLI that writes a markdown report and keeps the path stable.",
+      task_type: "code",
+      constraints: ["Use local files only"],
+      acceptance_criteria: [
+        "The CLI writes a markdown report file and keeps the output path stable across reruns."
+      ],
+      ontology_schema: {
+        name: "Research CLI",
+        description: "Research CLI output ontology",
+        fields: [
+          {
+            name: "Report",
+            type: "artifact",
+            description: "Markdown report artifact",
+            required: true
+          }
+        ]
+      },
+      metadata: {
+        seed_id: "seed_split",
+        interview_id: "interview_split",
+        ambiguity_score: 0.12,
+        forced: false,
+        created_at: "2026-03-31T00:00:00.000Z"
+      }
+    };
+    const seedPath = join(cwd, "seed.yaml");
+    await writeFile(seedPath, renderSeedYaml(seed), "utf8");
+
+    const service = new PrdService(new SeedService(new FakeCodexRunner()));
+    const result = await service.createRunFromSource(cwd, seedPath, {
+      activeHarness: {
+        ...buildHarnessSnapshot(),
+        workUnits: ["markdown-report", "path-stability", "cli-contracts"],
+        verificationStrategy: ["verify markdown output", "guard path consistency"],
+        verificationEmphasis: ["path consistency", "artifact completeness"]
+      }
+    });
+
+    expect(result.prd.stories).toHaveLength(2);
+    expect(result.prd.stories[0]?.workUnit).toBe("markdown-report");
+    expect(result.prd.stories[1]?.workUnit).toBe("path-stability");
+    expect(result.prd.stories[0]?.expectedArtifacts?.length).toBeGreaterThan(0);
+    expect(result.prd.stories[1]?.handoffContract?.[0]).toContain("_workspace");
   });
 });

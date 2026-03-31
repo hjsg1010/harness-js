@@ -146,6 +146,27 @@ describe("Harness blueprint and scaffold", () => {
     expect(generatedAgentContent).toContain("Outputs:");
     expect(generatedAgentContent).toContain("Collaboration:");
 
+    const artifactContracts = await readFile(
+      join(cwd, ".harness/generated-harness/research-harness/references/artifact-contracts.md"),
+      "utf8"
+    );
+    expect(artifactContracts).toContain("web-search");
+    expect(artifactContracts).toContain("Expected Artifacts");
+
+    const handoffProtocol = await readFile(
+      join(cwd, ".harness/generated-harness/research-harness/references/handoff-protocol.md"),
+      "utf8"
+    );
+    expect(handoffProtocol).toContain("_workspace");
+    expect(handoffProtocol).toContain("phase_role_artifact");
+
+    const verificationPolicy = await readFile(
+      join(cwd, ".harness/generated-harness/research-harness/references/verification-policy.md"),
+      "utf8"
+    );
+    expect(verificationPolicy).toContain("typecheck");
+    expect(verificationPolicy).toContain("Verification strategy");
+
     const manifestPath = resolveGeneratedHarnessPaths(cwd, "research-harness").manifestPath;
     expect(await readFile(manifestPath, "utf8")).toContain("research-harness");
 

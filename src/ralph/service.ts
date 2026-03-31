@@ -151,6 +151,8 @@ export class RalphService {
           current.loopState.reopenStateId = reopen.stateId;
           current.loopState.suggestedNextCommand = reopen.command;
           current.loopState.reopenReason = finalCritic.rejectionCategory;
+          current.loopState.suggestedQuestionFocus = reopen.questionFocus;
+          current.loopState.suggestedRepairFocus = reopen.repairFocus;
           current.loopState.updatedAt = nowIso();
           await persistRunArtifacts(cwd, runId, current);
           return current;
@@ -429,10 +431,17 @@ Use follow-up stories only for implementation_gap.
     cwd: string,
     prd: PrdDocument,
     verdict: ReviewVerdict
-  ): Promise<{ target: "feature" | "harness"; stateId: string; command: string }> {
+  ): Promise<{
+    target: "feature" | "harness";
+    stateId: string;
+    command: string;
+    questionFocus: string[] | null;
+    repairFocus: string[] | null;
+  }> {
     if (verdict.rejectionCategory === "requirement_ambiguity") {
       const brownfieldContext = await scanBrownfieldContext(cwd);
       const stateId = createId("interview");
+      const questionFocus = buildQuestionFocus(verdict);
       const state: InterviewState = {
         interviewId: stateId,
         lane: "feature",
@@ -481,13 +490,16 @@ Use follow-up stories only for implementation_gap.
       return {
         target: "feature",
         stateId,
-        command: `harness interview --resume ${stateId}`
+        command: `harness interview --resume ${stateId}`,
+        questionFocus,
+        repairFocus: null
       };
     }
 
     const repoProfile = await scanRepoProfile(cwd);
     await saveRepoProfile(cwd, repoProfile);
     const stateId = createId("architect");
+    const repairFocus = buildRepairFocus(verdict, prd);
     const state: ArchitectInterviewState = {
       interviewId: stateId,
       lane: "architect",
@@ -539,7 +551,9 @@ Use follow-up stories only for implementation_gap.
     return {
       target: "harness",
       stateId,
-      command: `harness architect --resume ${stateId}`
+      command: `harness architect --resume ${stateId}`,
+      questionFocus: null,
+      repairFocus
     };
   }
 }
@@ -562,6 +576,33 @@ function classifyRejectionCategory(verdict: ReviewVerdict): RejectionCategory {
   }
 
   return "implementation_gap";
+}
+
+function buildQuestionFocus(verdict: ReviewVerdict): string[] {
+  const hints = verdict.findings.length > 0 ? verdict.findings : [verdict.summary];
+  return uniqueGuidance(
+    hints.map((hint) => {
+      const normalized = normalizeGuidance(hint);
+      return /^clarify/i.test(normalized) ? normalized : `Clarify: ${normalized}`;
+    })
+  );
+}
+
+function buildRepairFocus(verdict: ReviewVerdict, prd: PrdDocument): string[] {
+  const hints = verdict.findings.length > 0 ? verdict.findings : [verdict.summary];
+  const harnessBias = prd.activeHarness?.verificationStrategy?.slice(0, 1) ?? [];
+  return uniqueGuidance([
+    ...harnessBias.map((item) => `Strengthen verification strategy around: ${item}`),
+    ...hints.map((hint) => normalizeGuidance(hint))
+  ]);
+}
+
+function normalizeGuidance(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function uniqueGuidance(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
 }
 
 function runShellCommand(command: string, cwd: string): Promise<CommandResult> {

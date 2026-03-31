@@ -20,6 +20,21 @@ import {
 } from "../infra/filesystem.js";
 import { SeedService } from "../seed/service.js";
 
+interface ProjectScripts {
+  testCommand: string | null;
+  hasBuild: boolean;
+  hasTypecheck: boolean;
+  hasLint: boolean;
+}
+
+interface StoryPlan {
+  criterion: string;
+  workUnit: string | null;
+  boundaryHints: string[];
+  verificationFocus: string[];
+  expectedArtifacts: string[];
+}
+
 export class PrdService {
   constructor(private readonly seedService: SeedService) {}
 
@@ -54,6 +69,8 @@ export class PrdService {
       reopenStateId: null,
       suggestedNextCommand: null,
       reopenReason: null,
+      suggestedQuestionFocus: null,
+      suggestedRepairFocus: null,
       createdAt: nowIso(),
       updatedAt: nowIso(),
       repeatedFailures: {},
@@ -84,17 +101,22 @@ export class PrdService {
     seed: SeedDocument,
     activeHarness: HarnessSnapshot | null | undefined
   ): Promise<UserStory[]> {
-    const verificationCommands = await discoverVerificationCommands(cwd, activeHarness);
-    return seed.acceptance_criteria.map((criterion, index) => {
-      const verificationFocus = deriveVerificationFocus(criterion, activeHarness);
-      const boundaryHints = deriveBoundaryHints(criterion, activeHarness, verificationFocus);
+    const scripts = await discoverProjectScripts(cwd);
+    const plans = seed.acceptance_criteria.flatMap((criterion) =>
+      planCriterionStories(criterion, activeHarness)
+    );
+    return plans.map((plan, index) => {
+      const storyId = `story_${String(index + 1).padStart(3, "0")}`;
       return {
-        id: `story_${String(index + 1).padStart(3, "0")}`,
-        title: toTitleFromAcceptanceCriterion(criterion),
-        acceptanceCriteria: [criterion],
-        verificationCommands,
-        boundaryHints,
-        verificationFocus,
+        id: storyId,
+        title: toTitleFromAcceptanceCriterion(plan.criterion),
+        acceptanceCriteria: [plan.criterion],
+        verificationCommands: buildVerificationCommands(plan, scripts),
+        workUnit: plan.workUnit,
+        boundaryHints: plan.boundaryHints,
+        verificationFocus: plan.verificationFocus,
+        expectedArtifacts: plan.expectedArtifacts,
+        handoffContract: buildHandoffContract(storyId, plan),
         passes: false,
         attempts: 0,
         lastReviewerVerdict: "pending"
@@ -103,45 +125,70 @@ export class PrdService {
   }
 }
 
-async function discoverVerificationCommands(
-  cwd: string,
-  activeHarness: HarnessSnapshot | null | undefined
-): Promise<string[]> {
+async function discoverProjectScripts(cwd: string): Promise<ProjectScripts> {
   try {
     const packageJson = await readText(join(cwd, "package.json"));
     const parsed = JSON.parse(packageJson) as { scripts?: Record<string, string> };
     const scripts = parsed.scripts ?? {};
-    const commands: string[] = [];
-    const verificationBias = [
-      ...(activeHarness?.verificationStrategy ?? []),
-      ...(activeHarness?.verificationEmphasis ?? [])
-    ]
-      .join(" ")
-      .toLowerCase();
-
-    if (
-      scripts.typecheck &&
-      /(contract|type|path|interface|schema|consisten)/.test(verificationBias)
-    ) {
-      commands.push("npm run typecheck");
-    }
-
-    if (scripts["test:run"]) {
-      commands.push("npm run test:run");
-    } else if (scripts.test) {
-      commands.push("npm test");
-    }
-
-    if (scripts.build) {
-      commands.push("npm run build");
-    }
-    if (scripts.lint && /(consisten|style|contract)/.test(verificationBias)) {
-      commands.push("npm run lint");
-    }
-    return [...new Set(commands)];
+    return {
+      testCommand: scripts["test:run"] ? "npm run test:run" : scripts.test ? "npm test" : null,
+      hasBuild: Boolean(scripts.build),
+      hasTypecheck: Boolean(scripts.typecheck),
+      hasLint: Boolean(scripts.lint)
+    };
   } catch {
-    return [];
+    return {
+      testCommand: null,
+      hasBuild: false,
+      hasTypecheck: false,
+      hasLint: false
+    };
   }
+}
+
+function planCriterionStories(
+  criterion: string,
+  activeHarness: HarnessSnapshot | null | undefined
+): StoryPlan[] {
+  const segments = splitCriterion(criterion, activeHarness);
+  return segments.map((segment) => {
+    const verificationFocus = deriveVerificationFocus(segment, activeHarness);
+    const boundaryHints = deriveBoundaryHints(segment, activeHarness, verificationFocus);
+    const workUnit = deriveWorkUnit(segment, activeHarness, boundaryHints);
+    return {
+      criterion: segment,
+      workUnit,
+      boundaryHints,
+      verificationFocus,
+      expectedArtifacts: deriveExpectedArtifacts(segment, workUnit)
+    };
+  });
+}
+
+function splitCriterion(
+  criterion: string,
+  activeHarness: HarnessSnapshot | null | undefined
+): string[] {
+  if (!activeHarness) {
+    return [criterion];
+  }
+
+  const segments = criterion
+    .split(/\s+\band\b\s+/i)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length < 2) {
+    return [criterion];
+  }
+
+  const hasReportSegment = segments.some((segment) => /(markdown|report|artifact|file)/i.test(segment));
+  const hasPathSegment = segments.some((segment) => /(path|stable|rerun|location|contract)/i.test(segment));
+  if (!hasReportSegment || !hasPathSegment) {
+    return [criterion];
+  }
+
+  return segments;
 }
 
 function deriveVerificationFocus(
@@ -169,6 +216,38 @@ function deriveVerificationFocus(
     ...activeHarness.verificationEmphasis.slice(0, 2),
     ...activeHarness.verificationStrategy.slice(0, 1)
   ]);
+}
+
+function deriveWorkUnit(
+  criterion: string,
+  activeHarness: HarnessSnapshot | null | undefined,
+  boundaryHints: string[]
+): string | null {
+  if (!activeHarness) {
+    return null;
+  }
+
+  const criterionTokens = tokenize(criterion);
+  const matches = activeHarness.workUnits
+    .map((workUnit) => ({
+      workUnit,
+      score: scoreTextMatch(criterionTokens, workUnit)
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  if ((matches[0]?.score ?? 0) > 0) {
+    return matches[0]?.workUnit ?? null;
+  }
+
+  if (/(markdown|report|artifact|file)/i.test(criterion)) {
+    return findWorkUnit(activeHarness.workUnits, ["report", "markdown", "artifact", "output"]);
+  }
+
+  if (/(path|stable|rerun|location)/i.test(criterion)) {
+    return findWorkUnit(activeHarness.workUnits, ["path", "stable", "contract", "cli"]);
+  }
+
+  return boundaryHints[0] ?? activeHarness.workUnits[0] ?? null;
 }
 
 function deriveBoundaryHints(
@@ -207,6 +286,89 @@ function deriveBoundaryHints(
   }
 
   return activeHarness.workUnits.slice(0, 2);
+}
+
+function deriveExpectedArtifacts(criterion: string, workUnit: string | null): string[] {
+  const pathMatch = criterion.match(/\b[\w./-]+\.(md|json|ya?ml|txt)\b/i);
+  const expected: string[] = [];
+
+  if (pathMatch?.[0]) {
+    expected.push(pathMatch[0]);
+  } else if (/(markdown|report)/i.test(criterion) || workUnit?.includes("report")) {
+    expected.push("report.md");
+  }
+
+  if (/(path|stable|rerun|location)/i.test(criterion) || workUnit?.includes("path")) {
+    expected.push("stable output path");
+  }
+
+  return uniqueStrings(expected);
+}
+
+function buildHandoffContract(storyId: string, plan: StoryPlan): string[] {
+  return uniqueStrings([
+    `Write a handoff note to _workspace/${storyId}_handoff.md with changed files and verification evidence.`,
+    plan.expectedArtifacts.length > 0
+      ? `Reference expected artifacts: ${plan.expectedArtifacts.join(", ")}.`
+      : `Reference the owned work unit: ${plan.workUnit ?? "generic"} and its validation evidence.`
+  ]);
+}
+
+function buildVerificationCommands(plan: StoryPlan, scripts: ProjectScripts): string[] {
+  const corpus = [
+    plan.criterion,
+    plan.workUnit ?? "",
+    ...plan.boundaryHints,
+    ...plan.verificationFocus,
+    ...plan.expectedArtifacts
+  ]
+    .join(" ")
+    .toLowerCase();
+  const commands: string[] = [];
+  const hasRepoAwareSignal =
+    Boolean(plan.workUnit) || plan.boundaryHints.length > 0 || plan.verificationFocus.length > 0;
+
+  if (
+    hasRepoAwareSignal &&
+    scripts.hasTypecheck &&
+    /(path|contract|cli|schema|type|interface|stable)/.test(corpus)
+  ) {
+    commands.push("npm run typecheck");
+  }
+
+  if (
+    scripts.testCommand &&
+    /(report|artifact|output|verification|markdown|file|stable|path)/.test(corpus)
+  ) {
+    commands.push(scripts.testCommand);
+  }
+
+  if (scripts.hasBuild && /(report|artifact|output|cli|path|stable|markdown)/.test(corpus)) {
+    commands.push("npm run build");
+  }
+
+  if (scripts.hasLint && /(consisten|style|contract)/.test(corpus)) {
+    commands.push("npm run lint");
+  }
+
+  if (commands.length === 0) {
+    if (scripts.testCommand) {
+      commands.push(scripts.testCommand);
+    }
+    if (scripts.hasBuild) {
+      commands.push("npm run build");
+    }
+  }
+
+  return uniqueStrings(commands);
+}
+
+function findWorkUnit(workUnits: string[], keywords: string[]): string | null {
+  return (
+    workUnits.find((workUnit) =>
+      keywords.some((keyword) => workUnit.toLowerCase().includes(keyword))
+    ) ?? null
+  );
 }
 
 function tokenize(value: string): string[] {

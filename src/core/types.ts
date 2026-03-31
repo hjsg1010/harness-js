@@ -338,8 +338,11 @@ export interface UserStory {
   title: string;
   acceptanceCriteria: string[];
   verificationCommands: string[];
+  workUnit?: string | null;
   boundaryHints?: string[];
   verificationFocus?: string[];
+  expectedArtifacts?: string[];
+  handoffContract?: string[];
   passes: boolean;
   attempts: number;
   lastReviewerVerdict: "pending" | "approved" | "rejected" | "blocked";
@@ -363,6 +366,8 @@ export interface LoopState {
   reopenStateId?: string | null;
   suggestedNextCommand?: string | null;
   reopenReason?: RejectionCategory | null;
+  suggestedQuestionFocus?: string[] | null;
+  suggestedRepairFocus?: string[] | null;
   createdAt: string;
   updatedAt: string;
   repeatedFailures: Record<string, { signature: string; count: number }>;
