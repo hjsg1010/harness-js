@@ -12,13 +12,13 @@ description: "Hybrid harness orchestrator. Use when the user wants the full inte
 아이디어에서 시작:
 
 ```bash
-node dist/cli.js run "<idea>"
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" run "<idea>"
 ```
 
 기존 artifact에서 시작:
 
 ```bash
-node dist/cli.js run "<spec-or-seed-path>"
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" run "<spec-or-seed-path>"
 ```
 
 ## 단계
@@ -27,3 +27,7 @@ node dist/cli.js run "<spec-or-seed-path>"
 2. immutable spec/seed generation
 3. seed-to-PRD bridge
 4. Ralph verification loop
+
+## 참고
+
+- `run "<idea>"`는 `interview -> seed -> ralph`를 한 번에 묶은 shortcut이다.

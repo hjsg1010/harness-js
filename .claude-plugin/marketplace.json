@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "harness-js",
+  "description": "Hybrid Harness for Claude Code: ambiguity-gated interview, immutable seed generation, and Ralph verification loops.",
+  "owner": {
+    "name": "hjsg1010"
+  },
+  "plugins": [
+    {
+      "name": "hybrid-harness",
+      "description": "Run specification-first interviews, generate immutable seed artifacts, and continue through a reviewer-backed Ralph loop.",
+      "version": "0.1.0",
+      "author": {
+        "name": "hjsg1010"
+      },
+      "source": "./",
+      "category": "development",
+      "homepage": "https://github.com/hjsg1010/harness-js",
+      "repository": "https://github.com/hjsg1010/harness-js",
+      "keywords": [
+        "claude-code",
+        "harness",
+        "interview",
+        "seed",
+        "verification"
+      ],
+      "tags": [
+        "requirements",
+        "specification-first",
+        "ralph-loop"
+      ]
+    }
+  ],
+  "version": "0.1.0"
+}

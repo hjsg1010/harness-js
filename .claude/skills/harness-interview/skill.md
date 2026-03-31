@@ -12,13 +12,13 @@ description: "Hybrid harness interview lane. Use when the user has a vague imple
 다음 명령으로 interview를 시작한다.
 
 ```bash
-node dist/cli.js interview "<idea>"
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" interview "<idea>"
 ```
 
 이어받기는 다음 명령을 사용한다.
 
 ```bash
-node dist/cli.js interview --resume <interview-id>
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" interview --resume <interview-id>
 ```
 
 ## 출력
@@ -30,3 +30,7 @@ node dist/cli.js interview --resume <interview-id>
 - 요구사항이 모호할 때
 - brownfield 변경이지만 수정 경계가 불분명할 때
 - seed/spec를 먼저 고정하고 싶을 때
+
+## 참고
+
+- marketplace로 설치한 경우 runner가 first run에 `npm install`, `npm run build`를 자동으로 수행할 수 있다.
