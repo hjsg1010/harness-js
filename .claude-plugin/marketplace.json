@@ -3,7 +3,7 @@
   "name": "harness-js",
   "description": "Hybrid Harness for Claude Code: ambiguity-gated interview, immutable seed generation, and Ralph verification loops.",
   "owner": {
-    "name": "hjsg1010"
+    "name": "js1010.hong"
   },
   "plugins": [
     {
@@ -11,7 +11,7 @@
       "description": "Run specification-first interviews, generate immutable seed artifacts, and continue through a reviewer-backed Ralph loop.",
       "version": "0.1.0",
       "author": {
-        "name": "hjsg1010"
+        "name": "js1010.hong"
       },
       "source": "./",
       "category": "development",
