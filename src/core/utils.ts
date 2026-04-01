@@ -20,10 +20,6 @@ export function clampScore(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-export function stableStringify(value: unknown): string {
-  return JSON.stringify(value, Object.keys(value as Record<string, unknown>).sort(), 2);
-}
-
 export function sha1(value: string): string {
   return createHash("sha1").update(value).digest("hex");
 }
@@ -45,11 +41,3 @@ export function toTitleFromAcceptanceCriterion(criterion: string): string {
   );
 }
 
-export function extractJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    return null;
-  }
-  return text.slice(start, end + 1);
-}

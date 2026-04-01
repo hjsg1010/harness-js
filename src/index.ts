@@ -7,6 +7,7 @@ export * from "./architect/service.js";
 export * from "./infra/filesystem.js";
 export * from "./infra/serializers.js";
 export * from "./interview/adaptive.js";
+export * from "./interview/brownfield.js";
 export * from "./interview/service.js";
 export * from "./prd/service.js";
 export * from "./ralph/service.js";

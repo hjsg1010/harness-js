@@ -1,8 +1,6 @@
 export const HARNESS_DIRNAME = ".harness";
 export const INTERVIEW_THRESHOLD = 0.2;
 export const MAX_REPEATED_FAILURES = 3;
-export const MAX_AUTO_REOPENS = 2;
-
 export const GREENFIELD_WEIGHTS = {
   goal: 0.4,
   constraints: 0.3,

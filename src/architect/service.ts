@@ -1,9 +1,7 @@
 import { ARCHITECT_WEIGHTS, INTERVIEW_THRESHOLD } from "../core/constants.js";
 import type {
-  ArchitectAmbiguityBreakdown,
   ArchitectInterviewState,
   ArchitectQuestionDraft,
-  ArchitectScoreDraft,
   ArchitectRoundInput
 } from "../core/types.js";
 import { createId, nowIso } from "../core/utils.js";

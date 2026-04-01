@@ -3,6 +3,10 @@
   "version": "0.2.0",
   "description": "Hybrid harness that combines Ouroboros-style interviewing with a Ralph-style verification loop.",
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "bin": {
     "harness": "./dist/cli.js"
   },

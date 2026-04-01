@@ -74,7 +74,8 @@ export class RalphService {
       commandsPassed
     ) {
       this.markStoryPassed(current.prd, story.id);
-      delete current.loopState.repeatedFailures[story.id];
+      const { [story.id]: _removed, ...remainingFailures } = current.loopState.repeatedFailures;
+      current.loopState.repeatedFailures = remainingFailures;
     } else {
       this.markStoryRejected(current.prd, story.id);
       const signature =
@@ -82,17 +83,21 @@ export class RalphService {
         input.qaVerdict.failureSignature ??
         "unknown-failure";
       const repeated = current.loopState.repeatedFailures[story.id];
-      if (repeated && repeated.signature === signature) {
-        repeated.count += 1;
-      } else {
-        current.loopState.repeatedFailures[story.id] = { signature, count: 1 };
-      }
+      current.loopState.repeatedFailures = {
+        ...current.loopState.repeatedFailures,
+        [story.id]:
+          repeated && repeated.signature === signature
+            ? { signature, count: repeated.count + 1 }
+            : { signature, count: 1 }
+      };
 
       if (current.loopState.repeatedFailures[story.id].count >= MAX_REPEATED_FAILURES) {
+        current.prd.stories = current.prd.stories.map((item) =>
+          item.id === story.id ? { ...item, lastReviewerVerdict: "blocked" as const } : item
+        );
         current.loopState.status = "blocked";
         current.loopState.currentStoryId = story.id;
         current.prd.status = "blocked";
-        story.lastReviewerVerdict = "blocked";
         current.loopState.updatedAt = nowIso();
         await persistRunArtifacts(cwd, runId, current);
         return current;
@@ -184,21 +189,19 @@ export class RalphService {
   }
 
   private markStoryPassed(prd: PrdDocument, storyId: string): void {
-    const story = prd.stories.find((item) => item.id === storyId);
-    if (!story) {
-      return;
-    }
-    story.passes = true;
-    story.lastReviewerVerdict = "approved";
+    prd.stories = prd.stories.map((item) =>
+      item.id === storyId
+        ? { ...item, passes: true, lastReviewerVerdict: "approved" as const }
+        : item
+    );
   }
 
   private markStoryRejected(prd: PrdDocument, storyId: string): void {
-    const story = prd.stories.find((item) => item.id === storyId);
-    if (!story) {
-      return;
-    }
-    story.attempts += 1;
-    story.lastReviewerVerdict = "rejected";
+    prd.stories = prd.stories.map((item) =>
+      item.id === storyId
+        ? { ...item, attempts: item.attempts + 1, lastReviewerVerdict: "rejected" as const }
+        : item
+    );
   }
 
   private normalizeCriticVerdict(verdict: ReviewVerdict): ReviewVerdict {

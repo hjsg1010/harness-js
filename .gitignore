@@ -4,3 +4,5 @@ dist/
 coverage/
 tasks/todo.md
 tasks/lessons.md
+vitest.config.js
+vitest.config.js.map

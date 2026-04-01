@@ -6,7 +6,6 @@ export type ArchitectDimensionName =
   | "team_topology"
   | "verification_strategy"
   | "user_operating_style";
-export type DimensionName = FeatureDimensionName;
 export type InterviewStatus = "in_progress" | "completed";
 export type LoopStatus = "pending" | "running" | "blocked" | "completed" | "reopen_required";
 export type Verdict = "APPROVE" | "REJECT";
@@ -132,15 +131,6 @@ export interface ArchitectQuestionDraft {
   question: string;
 }
 
-export interface ScoreDraft {
-  goal: DimensionAssessment;
-  constraints: DimensionAssessment;
-  criteria: DimensionAssessment;
-  context?: DimensionAssessment;
-  weakestDimension: DimensionName;
-  weakestDimensionRationale: string;
-}
-
 export interface FeatureRoundInput {
   targeting: FeatureDimensionName;
   rationale: string;
@@ -148,16 +138,6 @@ export interface FeatureRoundInput {
   answer: string;
   breakdown: AmbiguityBreakdown;
   weakestDimension: FeatureDimensionName;
-  weakestDimensionRationale: string;
-}
-
-export interface ArchitectScoreDraft {
-  domain_scope: DimensionAssessment;
-  work_units: DimensionAssessment;
-  team_topology: DimensionAssessment;
-  verification_strategy: DimensionAssessment;
-  user_operating_style: DimensionAssessment;
-  weakestDimension: ArchitectDimensionName;
   weakestDimensionRationale: string;
 }
 
@@ -422,7 +402,3 @@ export interface RunArtifacts {
   verification: VerificationEntry[];
 }
 
-export interface OrchestratorRunResult extends RunArtifacts {
-  runId: string;
-  reopenHistory: ReopenHistoryEntry[];
-}

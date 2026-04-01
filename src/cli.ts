@@ -333,10 +333,6 @@ function positionalArgs(argv: string[], flags: Set<string>): string[] {
 }
 
 function printJsonIfRequested(argv: string[], payload: unknown): void {
-  if (argv.includes("--json")) {
-    console.log(JSON.stringify(payload, null, 2));
-    return;
-  }
   console.log(JSON.stringify(payload, null, 2));
 }
 
