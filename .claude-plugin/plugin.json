@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "description": "Specification-first interview and Ralph-style verification loop for Claude Code.",
   "author": {
-    "name": "hjsg1010"
+    "name": "js1010.hong"
   },
-  "repository": "https://github.com/hjsg1010/harness-js",
-  "homepage": "https://github.com/hjsg1010/harness-js",
+  "repository": "https://github.samsungds.net/js1010-hong/harness-js",
+  "homepage": "https://github.samsungds.net/js1010-hong/harness-js",
   "keywords": [
     "claude-code",
     "harness",
