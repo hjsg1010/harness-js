@@ -141,12 +141,32 @@ export interface ScoreDraft {
   weakestDimensionRationale: string;
 }
 
+export interface FeatureRoundInput {
+  targeting: FeatureDimensionName;
+  rationale: string;
+  question: string;
+  answer: string;
+  breakdown: AmbiguityBreakdown;
+  weakestDimension: FeatureDimensionName;
+  weakestDimensionRationale: string;
+}
+
 export interface ArchitectScoreDraft {
   domain_scope: DimensionAssessment;
   work_units: DimensionAssessment;
   team_topology: DimensionAssessment;
   verification_strategy: DimensionAssessment;
   user_operating_style: DimensionAssessment;
+  weakestDimension: ArchitectDimensionName;
+  weakestDimensionRationale: string;
+}
+
+export interface ArchitectRoundInput {
+  targeting: ArchitectDimensionName;
+  rationale: string;
+  question: string;
+  answer: string;
+  breakdown: ArchitectAmbiguityBreakdown;
   weakestDimension: ArchitectDimensionName;
   weakestDimensionRationale: string;
 }
@@ -266,7 +286,6 @@ export interface HarnessSeedDocument {
     slug: string;
     claude_agents: boolean;
     claude_skills: boolean;
-    codex_skills: boolean;
   };
   metadata: {
     seed_id: string;
@@ -315,6 +334,8 @@ export interface ReviewVerdict {
   findings: string[];
   rejectionCategory?: RejectionCategory | null;
   followUpStories?: FollowUpStoryDraft[];
+  suggestedQuestionFocus?: string[];
+  suggestedRepairFocus?: string[];
 }
 
 export interface QaVerdict {
@@ -323,6 +344,16 @@ export interface QaVerdict {
   failureSignature: string | null;
   findings: string[];
   suggestedVerificationCommands?: string[];
+}
+
+export interface StoryResultInput {
+  storyId: string;
+  implementerOutput: string;
+  changedFiles: string[];
+  qaVerdict: QaVerdict;
+  reviewerVerdict: ReviewVerdict;
+  commandResults: CommandResult[];
+  finalCritic?: ReviewVerdict | null;
 }
 
 export interface ReopenHistoryEntry {
@@ -394,20 +425,4 @@ export interface RunArtifacts {
 export interface OrchestratorRunResult extends RunArtifacts {
   runId: string;
   reopenHistory: ReopenHistoryEntry[];
-}
-
-export interface CodexExecOptions {
-  cwd: string;
-  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
-  model?: string;
-}
-
-export interface CodexRunner {
-  execText(prompt: string, options: CodexExecOptions): Promise<string>;
-  execJson<T>(prompt: string, schema: Record<string, unknown>, options: CodexExecOptions): Promise<T>;
-  reviewJson<T>(
-    prompt: string,
-    schema: Record<string, unknown>,
-    options: { cwd: string; model?: string }
-  ): Promise<T>;
 }

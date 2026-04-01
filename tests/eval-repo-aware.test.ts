@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { HarnessSnapshot } from "../src/core/types.js";
 import { PrdService } from "../src/prd/service.js";
 import { SeedService } from "../src/seed/service.js";
-import { FakeCodexRunner } from "./helpers/fake-runner.js";
 import { cleanupTempDir, createTempDir } from "./helpers/temp-dir.js";
 
 const tempDirs: string[] = [];
@@ -59,7 +58,7 @@ describe("repo-aware eval", () => {
     const seedPath = join(cwd, "seed.yaml");
     await writeFile(seedPath, fixtureSeed, "utf8");
 
-    const service = new PrdService(new SeedService(new FakeCodexRunner()));
+    const service = new PrdService(new SeedService());
     const generic = await service.createRunFromSource(cwd, seedPath, {
       activeHarness: null
     });

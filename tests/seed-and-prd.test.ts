@@ -7,7 +7,6 @@ import { PrdService } from "../src/prd/service.js";
 import { SeedService } from "../src/seed/service.js";
 import { saveInterviewState } from "../src/infra/filesystem.js";
 import { renderSeedYaml } from "../src/infra/serializers.js";
-import { FakeCodexRunner } from "./helpers/fake-runner.js";
 import { cleanupTempDir, createTempDir } from "./helpers/temp-dir.js";
 
 const tempDirs: string[] = [];
@@ -80,8 +79,7 @@ describe("SeedService and PrdService", () => {
     };
     await saveInterviewState(cwd, interview);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecJson({
+    const draft = {
       title: "Research CLI",
       goal: "Build a CLI that writes a markdown research report.",
       constraints: ["Use local files only"],
@@ -90,15 +88,16 @@ describe("SeedService and PrdService", () => {
       transcriptSummary: ["The user wants a markdown report."],
       technicalContext: ["TypeScript CLI repo"],
       ontology: [{ name: "Report", type: "artifact", fields: ["path"], relationships: [] }]
-    });
+    };
 
-    const service = new SeedService(runner);
-    await service.generateFromInterview(cwd, interview.interviewId);
+    const service = new SeedService();
+    const prompt = service.createDraftPrompt(interview);
+    await service.generateFromDraft(cwd, interview.interviewId, draft);
 
-    expect(runner.execJsonPrompts[0]).toContain("Active Harness");
-    expect(runner.execJsonPrompts[0]).toContain("research-harness");
-    expect(runner.execJsonPrompts[0]).toContain("markdown-report");
-    expect(runner.execJsonPrompts[0]).toContain("verification bias");
+    expect(prompt).toContain("Active Harness");
+    expect(prompt).toContain("research-harness");
+    expect(prompt).toContain("markdown-report");
+    expect(prompt).toContain("verification bias");
   });
 
   it("uses the active harness to enrich PRD stories and verification commands", async () => {
@@ -154,7 +153,7 @@ describe("SeedService and PrdService", () => {
     const seedPath = join(cwd, "seed.yaml");
     await writeFile(seedPath, renderSeedYaml(seed), "utf8");
 
-    const service = new PrdService(new SeedService(new FakeCodexRunner()));
+    const service = new PrdService(new SeedService());
     const result = await service.createRunFromSource(cwd, seedPath, {
       activeHarness: buildHarnessSnapshot()
     });
@@ -237,7 +236,7 @@ describe("SeedService and PrdService", () => {
     const seedPath = join(cwd, "seed.yaml");
     await writeFile(seedPath, renderSeedYaml(seed), "utf8");
 
-    const service = new PrdService(new SeedService(new FakeCodexRunner()));
+    const service = new PrdService(new SeedService());
     const result = await service.createRunFromSource(cwd, seedPath, {
       activeHarness: {
         ...buildHarnessSnapshot(),

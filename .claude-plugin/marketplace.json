@@ -9,7 +9,7 @@
     {
       "name": "hybrid-harness",
       "description": "Run specification-first interviews, generate immutable seed artifacts, and continue through a reviewer-backed Ralph loop.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "js1010.hong"
       },
@@ -31,5 +31,5 @@
       ]
     }
   ],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

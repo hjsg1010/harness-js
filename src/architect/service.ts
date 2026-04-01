@@ -4,7 +4,7 @@ import type {
   ArchitectInterviewState,
   ArchitectQuestionDraft,
   ArchitectScoreDraft,
-  CodexRunner
+  ArchitectRoundInput
 } from "../core/types.js";
 import { createId, nowIso } from "../core/utils.js";
 import {
@@ -33,8 +33,6 @@ const QUESTION_SCHEMA = createQuestionSchema(ARCHITECT_DIMENSIONS);
 const SCORE_SCHEMA = createScoreSchema(ARCHITECT_DIMENSIONS);
 
 export class ArchitectService {
-  constructor(private readonly runner: CodexRunner) {}
-
   async create(initialIdea: string, cwd: string): Promise<ArchitectInterviewState> {
     const repoProfile = await scanRepoProfile(cwd);
     await saveRepoProfile(cwd, repoProfile);
@@ -62,37 +60,20 @@ export class ArchitectService {
     return loadArchitectInterviewState(cwd, interviewId);
   }
 
-  async nextQuestion(state: ArchitectInterviewState, cwd: string): Promise<ArchitectQuestionDraft> {
-    return this.runner.execJson<ArchitectQuestionDraft>(
-      await this.buildQuestionPrompt(cwd, state),
-      QUESTION_SCHEMA,
-      {
-        cwd,
-        sandbox: "read-only"
-      }
-    );
+  async createQuestionPrompt(cwd: string, state: ArchitectInterviewState): Promise<string> {
+    return this.buildQuestionPrompt(cwd, state);
   }
 
-  async answer(
+  createQuestionSchema() {
+    return QUESTION_SCHEMA;
+  }
+
+  async applyRound(
     state: ArchitectInterviewState,
-    draft: ArchitectQuestionDraft,
-    answer: string,
+    input: ArchitectRoundInput,
     cwd: string
   ): Promise<ArchitectInterviewState> {
-    const scored = await this.runner.execJson<ArchitectScoreDraft>(
-      await this.buildScorePrompt(cwd, state, draft, answer),
-      SCORE_SCHEMA,
-      { cwd, sandbox: "read-only" }
-    );
-
-    const breakdown: ArchitectAmbiguityBreakdown = {
-      domain_scope: scored.domain_scope,
-      work_units: scored.work_units,
-      team_topology: scored.team_topology,
-      verification_strategy: scored.verification_strategy,
-      user_operating_style: scored.user_operating_style
-    };
-    const ambiguity = computeWeightedAmbiguity(breakdown, ARCHITECT_WEIGHTS);
+    const ambiguity = computeWeightedAmbiguity(input.breakdown, ARCHITECT_WEIGHTS);
 
     const updated: ArchitectInterviewState = {
       ...state,
@@ -102,16 +83,16 @@ export class ArchitectService {
         ...state.rounds,
         {
           roundNumber: state.rounds.length + 1,
-          targeting: draft.targeting,
-          rationale: draft.rationale,
-          question: draft.question,
-          answer,
+          targeting: input.targeting,
+          rationale: input.rationale,
+          question: input.question,
+          answer: input.answer,
           askedAt: nowIso(),
           answeredAt: nowIso(),
           ambiguity,
-          breakdown,
-          weakestDimension: scored.weakestDimension,
-          weakestDimensionRationale: scored.weakestDimensionRationale
+          breakdown: input.breakdown,
+          weakestDimension: input.weakestDimension,
+          weakestDimensionRationale: input.weakestDimensionRationale
         }
       ],
       updatedAt: nowIso()
@@ -119,6 +100,19 @@ export class ArchitectService {
 
     await saveArchitectInterviewState(cwd, updated);
     return updated;
+  }
+
+  async createScorePrompt(
+    cwd: string,
+    state: ArchitectInterviewState,
+    draft: ArchitectQuestionDraft,
+    answer: string
+  ): Promise<string> {
+    return this.buildScorePrompt(cwd, state, draft, answer);
+  }
+
+  createScoreSchema() {
+    return SCORE_SCHEMA;
   }
 
   formatProgress(state: ArchitectInterviewState): string {

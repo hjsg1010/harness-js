@@ -1,6 +1,6 @@
 {
   "name": "hybrid-harness",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hybrid harness that combines Ouroboros-style interviewing with a Ralph-style verification loop.",
   "type": "module",
   "bin": {
@@ -10,7 +10,6 @@
     "build": "tsc -p tsconfig.json",
     "eval": "vitest run tests/eval-repo-aware.test.ts",
     "smoke:cli": "npm run build && node dist/cli.js --help",
-    "smoke:live": "npm run build && node scripts/smoke-live.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

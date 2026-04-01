@@ -27,7 +27,7 @@ describe("generated harness manifest storage", () => {
       seedId: "seed_fixed",
       slug: "research-harness",
       generatedAt: "2026-03-31T00:00:00.000Z",
-      files: [{ path: ".claude/agents/research-harness-orchestrator.md", sha1: "abc123" }],
+      files: [{ path: "agents/research-harness-orchestrator.md", sha1: "abc123" }],
       conflicts: []
     };
 

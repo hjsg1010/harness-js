@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { LoopState, PrdDocument } from "../src/core/types.js";
+import type { LoopState, PrdDocument, StoryResultInput } from "../src/core/types.js";
 import { RalphService } from "../src/ralph/service.js";
-import { FakeCodexRunner } from "./helpers/fake-runner.js";
 import { cleanupTempDir, createTempDir } from "./helpers/temp-dir.js";
 
 const tempDirs: string[] = [];
@@ -38,6 +37,8 @@ function buildBaseArtifacts() {
     reopenStateId: null,
     suggestedNextCommand: null,
     reopenReason: null,
+    suggestedQuestionFocus: null,
+    suggestedRepairFocus: null,
     createdAt: "2026-03-31T00:00:00.000Z",
     updatedAt: "2026-03-31T00:00:00.000Z",
     repeatedFailures: {},
@@ -46,154 +47,121 @@ function buildBaseArtifacts() {
   return { prd, loopState, progress: "# Ralph Progress\n", verification: [] };
 }
 
+function rejectingStoryResult(signature = "same-issue"): StoryResultInput {
+  return {
+    storyId: "story_001",
+    implementerOutput: "attempt",
+    changedFiles: ["src/example.ts"],
+    qaVerdict: {
+      verdict: "APPROVE",
+      summary: "QA passed",
+      failureSignature: null,
+      findings: []
+    },
+    reviewerVerdict: {
+      verdict: "REJECT",
+      summary: "Reviewer found the same issue",
+      failureSignature: signature,
+      findings: ["Issue remains"]
+    },
+    commandResults: []
+  };
+}
+
 describe("RalphService", () => {
   it("blocks after the same failure signature repeats three times", async () => {
     const cwd = await createTempDir();
     tempDirs.push(cwd);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecText("attempt 1");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "Reviewer found the same issue",
-      failureSignature: "same-issue",
-      findings: ["Issue remains"]
-    });
+    const service = new RalphService();
+    let artifacts = buildBaseArtifacts();
+    artifacts = await service.applyStoryResult(cwd, "run_fixed", artifacts, rejectingStoryResult("same-issue"));
+    artifacts = await service.applyStoryResult(cwd, "run_fixed", artifacts, rejectingStoryResult("same-issue"));
+    artifacts = await service.applyStoryResult(cwd, "run_fixed", artifacts, rejectingStoryResult("same-issue"));
 
-    runner.pushExecText("attempt 2");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "Reviewer found the same issue",
-      failureSignature: "same-issue",
-      findings: ["Issue remains"]
-    });
-
-    runner.pushExecText("attempt 3");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "Reviewer found the same issue",
-      failureSignature: "same-issue",
-      findings: ["Issue remains"]
-    });
-
-    const service = new RalphService(runner);
-    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
-
-    expect(result.loopState.status).toBe("blocked");
-    expect(result.prd.stories[0]?.attempts).toBe(3);
-    expect(result.prd.stories[0]?.lastReviewerVerdict).toBe("blocked");
+    expect(artifacts.loopState.status).toBe("blocked");
+    expect(artifacts.prd.stories[0]?.attempts).toBe(3);
+    expect(artifacts.prd.stories[0]?.lastReviewerVerdict).toBe("blocked");
   });
 
   it("adds follow-up stories when the final critic rejects completion", async () => {
     const cwd = await createTempDir();
     tempDirs.push(cwd);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecText("story 1 impl");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Reviewer approved story 1",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "Need one more follow-up story",
-      failureSignature: "final-gap",
-      findings: ["Add one more regression proof"],
-      followUpStories: [
-        {
-          title: "Add regression proof",
-          acceptanceCriteria: ["Add one more regression proof"],
-          verificationCommands: []
-        }
-      ]
-    });
-    runner.pushExecText("story 2 impl");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Reviewer approved story 2",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Final critic approved",
-      failureSignature: null,
-      findings: []
+    const service = new RalphService();
+    const result = await service.applyStoryResult(cwd, "run_fixed", buildBaseArtifacts(), {
+      storyId: "story_001",
+      implementerOutput: "story 1 impl",
+      changedFiles: ["src/report.ts"],
+      qaVerdict: {
+        verdict: "APPROVE",
+        summary: "QA passed",
+        failureSignature: null,
+        findings: []
+      },
+      reviewerVerdict: {
+        verdict: "APPROVE",
+        summary: "Reviewer approved story 1",
+        failureSignature: null,
+        findings: []
+      },
+      commandResults: [],
+      finalCritic: {
+        verdict: "REJECT",
+        summary: "Need one more follow-up story",
+        failureSignature: "final-gap",
+        rejectionCategory: "implementation_gap",
+        findings: ["Add one more regression proof"],
+        followUpStories: [
+          {
+            title: "Add regression proof",
+            acceptanceCriteria: ["Add one more regression proof"],
+            verificationCommands: []
+          }
+        ]
+      }
     });
 
-    const service = new RalphService(runner);
-    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
-
-    expect(result.loopState.status).toBe("completed");
+    expect(result.loopState.status).toBe("running");
     expect(result.prd.stories).toHaveLength(2);
     expect(result.prd.stories[1]?.title).toBe("Add regression proof");
-    expect(result.prd.stories.every((story) => story.passes)).toBe(true);
+    expect(result.loopState.currentStoryId).toBe("story_followup_002");
   });
 
   it("returns reopen_required with a synthetic feature reopen state when the critic reports requirement ambiguity", async () => {
     const cwd = await createTempDir();
     tempDirs.push(cwd);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecText("story 1 impl");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
+    const service = new RalphService();
+    const result = await service.applyStoryResult(cwd, "run_fixed", buildBaseArtifacts(), {
+      storyId: "story_001",
+      implementerOutput: "story 1 impl",
+      changedFiles: ["src/report.ts"],
+      qaVerdict: {
+        verdict: "APPROVE",
+        summary: "QA passed",
+        failureSignature: null,
+        findings: []
+      },
+      reviewerVerdict: {
+        verdict: "APPROVE",
+        summary: "Reviewer approved story 1",
+        failureSignature: null,
+        findings: []
+      },
+      commandResults: [],
+      finalCritic: {
+        verdict: "REJECT",
+        summary: "The output format is still ambiguous.",
+        failureSignature: "ambiguous-output-format",
+        rejectionCategory: "requirement_ambiguity",
+        findings: ["Clarify the output format."]
+      }
     });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Reviewer approved story 1",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "The output format is still ambiguous.",
-      failureSignature: "ambiguous-output-format",
-      rejectionCategory: "requirement_ambiguity",
-      findings: ["Clarify the output format."]
-    });
-
-    const service = new RalphService(runner);
-    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
 
     expect(result.loopState.status).toBe("reopen_required");
     expect(result.loopState.reopenTarget).toBe("feature");
-    expect(result.loopState.suggestedNextCommand).toMatch(/harness interview --resume/);
+    expect(result.loopState.suggestedNextCommand).toMatch(/harness internal feature-init --resume/);
     expect(result.loopState.reopenStateId).toBeTruthy();
     expect(result.loopState.reopenHistory).toHaveLength(1);
     expect(result.loopState.reopenHistory[0]?.reason).toBe("requirement_ambiguity");
@@ -204,29 +172,31 @@ describe("RalphService", () => {
     const cwd = await createTempDir();
     tempDirs.push(cwd);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecText("story 1 impl");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
+    const service = new RalphService();
+    const result = await service.applyStoryResult(cwd, "run_fixed", buildBaseArtifacts(), {
+      storyId: "story_001",
+      implementerOutput: "story 1 impl",
+      changedFiles: ["src/report.ts"],
+      qaVerdict: {
+        verdict: "APPROVE",
+        summary: "QA passed",
+        failureSignature: null,
+        findings: []
+      },
+      reviewerVerdict: {
+        verdict: "APPROVE",
+        summary: "Reviewer approved story 1",
+        failureSignature: null,
+        findings: []
+      },
+      commandResults: [],
+      finalCritic: {
+        verdict: "REJECT",
+        summary: "Clarify whether the final output must be markdown or JSON.",
+        failureSignature: "ambiguous-output-format",
+        findings: ["The output format is ambiguous and needs clarification."]
+      }
     });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Reviewer approved story 1",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "Clarify whether the final output must be markdown or JSON.",
-      failureSignature: "ambiguous-output-format",
-      findings: ["The output format is ambiguous and needs clarification."]
-    });
-
-    const service = new RalphService(runner);
-    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
 
     expect(result.loopState.status).toBe("reopen_required");
     expect(result.loopState.reopenTarget).toBe("feature");
@@ -238,33 +208,35 @@ describe("RalphService", () => {
     const cwd = await createTempDir();
     tempDirs.push(cwd);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecText("story 1 impl");
-    runner.pushExecJson({
-      verdict: "APPROVE",
-      summary: "QA passed",
-      failureSignature: null,
-      findings: []
+    const service = new RalphService();
+    const result = await service.applyStoryResult(cwd, "run_fixed", buildBaseArtifacts(), {
+      storyId: "story_001",
+      implementerOutput: "story 1 impl",
+      changedFiles: ["src/report.ts"],
+      qaVerdict: {
+        verdict: "APPROVE",
+        summary: "QA passed",
+        failureSignature: null,
+        findings: []
+      },
+      reviewerVerdict: {
+        verdict: "APPROVE",
+        summary: "Reviewer approved story 1",
+        failureSignature: null,
+        findings: []
+      },
+      commandResults: [],
+      finalCritic: {
+        verdict: "REJECT",
+        summary: "The harness verification strategy is missing CLI path validation.",
+        failureSignature: "harness-verification-gap",
+        findings: ["The harness needs a stronger verification strategy for generated paths."]
+      }
     });
-    runner.pushReviewJson({
-      verdict: "APPROVE",
-      summary: "Reviewer approved story 1",
-      failureSignature: null,
-      findings: []
-    });
-    runner.pushReviewJson({
-      verdict: "REJECT",
-      summary: "The harness verification strategy is missing CLI path validation.",
-      failureSignature: "harness-verification-gap",
-      findings: ["The harness needs a stronger verification strategy for generated paths."]
-    });
-
-    const service = new RalphService(runner);
-    const result = await service.execute(cwd, "run_fixed", buildBaseArtifacts());
 
     expect(result.loopState.status).toBe("reopen_required");
     expect(result.loopState.reopenTarget).toBe("harness");
     expect(result.loopState.reopenReason).toBe("harness_design_gap");
-    expect(result.loopState.suggestedRepairFocus?.[0]).toContain("verification strategy");
+    expect(result.loopState.suggestedRepairFocus?.some((item) => item.includes("verification strategy"))).toBe(true);
   });
 });

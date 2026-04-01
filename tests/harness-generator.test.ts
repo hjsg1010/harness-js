@@ -14,7 +14,6 @@ import { parseHarnessSeedYaml, parseHarnessBlueprintMarkdown } from "../src/infr
 import { HarnessBlueprintService } from "../src/architect/blueprint-service.js";
 import { HarnessScaffoldService } from "../src/architect/scaffold-service.js";
 import { InterviewService } from "../src/interview/service.js";
-import { FakeCodexRunner } from "./helpers/fake-runner.js";
 import { cleanupTempDir, createTempDir } from "./helpers/temp-dir.js";
 
 const tempDirs: string[] = [];
@@ -84,8 +83,7 @@ describe("Harness blueprint and scaffold", () => {
     });
     await saveArchitectInterviewState(cwd, architect);
 
-    const runner = new FakeCodexRunner();
-    runner.pushExecJson({
+    const draft = {
       title: "Research Harness",
       harnessGoal: "Build a repo-specific harness for multi-angle research and synthesis.",
       repoProfileSummary: ["TypeScript CLI", "npm build and test scripts"],
@@ -113,12 +111,13 @@ describe("Harness blueprint and scaffold", () => {
         "synthesizer merges findings into final report"
       ],
       constraints: ["Keep outputs local", "Do not overwrite user-edited generated files"],
-      generationTargets: ["claude-agents", "claude-skills", "codex-skills"]
-    });
+      generationTargets: ["claude-agents", "claude-skills"]
+    };
 
-    const blueprintService = new HarnessBlueprintService(runner);
+    const blueprintService = new HarnessBlueprintService();
     const scaffoldService = new HarnessScaffoldService();
-    const blueprintResult = await blueprintService.generateFromInterview(cwd, architect.interviewId);
+    const prompt = await blueprintService.createDraftPrompt(cwd, architect.interviewId);
+    const blueprintResult = await blueprintService.generateFromDraft(cwd, architect.interviewId, draft);
 
     const parsedBlueprint = parseHarnessBlueprintMarkdown(await readFile(blueprintResult.blueprintPath, "utf8"));
     const parsedSeed = parseHarnessSeedYaml(await readFile(blueprintResult.seedPath, "utf8"));
@@ -133,14 +132,15 @@ describe("Harness blueprint and scaffold", () => {
     const activeHarness = await loadActiveHarness(cwd);
     expect(manifest.slug).toBe("research-harness");
     expect(activeHarness.slug).toBe("research-harness");
+    expect(prompt).toContain("Claude plugin assets");
 
-    const orchestratorSkill = join(cwd, ".agents/skills/research-harness-orchestrator/SKILL.md");
+    const orchestratorSkill = join(cwd, "skills/research-harness-orchestrator/skill.md");
     const orchestratorSkillContent = await readFile(orchestratorSkill, "utf8");
     expect(orchestratorSkillContent).toContain("research-harness");
     expect(orchestratorSkillContent).toContain("_workspace");
     expect(orchestratorSkillContent).toContain("validation-checklist.md");
 
-    const generatedAgent = join(cwd, ".claude/agents/research-harness-orchestrator.md");
+    const generatedAgent = join(cwd, "agents/research-harness-orchestrator.md");
     const generatedAgentContent = await readFile(generatedAgent, "utf8");
     expect(generatedAgentContent).toContain("Inputs:");
     expect(generatedAgentContent).toContain("Outputs:");
@@ -170,18 +170,10 @@ describe("Harness blueprint and scaffold", () => {
     const manifestPath = resolveGeneratedHarnessPaths(cwd, "research-harness").manifestPath;
     expect(await readFile(manifestPath, "utf8")).toContain("research-harness");
 
-    const interviewRunner = new FakeCodexRunner();
-    interviewRunner.pushExecJson({
-      targeting: "goal",
-      rationale: "Goal needs a first action.",
-      question: "What should happen first?"
-    });
-    const interviewService = new InterviewService(interviewRunner);
+    const interviewService = new InterviewService();
     const featureState = await interviewService.create("Build a report writer", cwd);
-    await interviewService.nextQuestion(featureState, cwd);
-
-    expect(interviewRunner.execJsonPrompts[0]).toContain("Active Harness");
-    expect(interviewRunner.execJsonPrompts[0]).toContain("research-harness");
+    expect(interviewService.createQuestionPrompt(featureState)).toContain("Active Harness");
+    expect(interviewService.createQuestionPrompt(featureState)).toContain("research-harness");
   });
 
   it("protects user-edited generated files on re-scaffold", async () => {
@@ -240,7 +232,6 @@ generation_targets:
   slug: research-harness
   claude_agents: true
   claude_skills: true
-  codex_skills: true
 metadata:
   seed_id: harness_seed_fixed
   blueprint_id: blueprint_fixed
@@ -255,7 +246,7 @@ metadata:
     const scaffoldService = new HarnessScaffoldService();
     await scaffoldService.generateFromSource(cwd, seedPath);
 
-    const target = join(cwd, ".claude/agents/research-harness-orchestrator.md");
+    const target = join(cwd, "agents/research-harness-orchestrator.md");
     await writeFile(target, "# user-edited\n", "utf8");
 
     await expect(scaffoldService.generateFromSource(cwd, seedPath)).rejects.toThrow(/conflict/i);
@@ -306,7 +297,6 @@ generation_targets:
   slug: research-harness
   claude_agents: true
   claude_skills: true
-  codex_skills: true
 metadata:
   seed_id: harness_seed_research
   blueprint_id: blueprint_research
@@ -355,7 +345,6 @@ generation_targets:
   slug: analysis-harness
   claude_agents: true
   claude_skills: true
-  codex_skills: true
 metadata:
   seed_id: harness_seed_analysis
   blueprint_id: blueprint_analysis

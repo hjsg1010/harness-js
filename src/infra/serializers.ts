@@ -125,7 +125,7 @@ ${renderList(blueprint.orchestrationProtocol)}
 ## Constraints
 ${renderList(blueprint.constraints)}
 ## Generation Targets
-${renderList(blueprint.generationTargets)}
+${renderList(blueprint.generationTargets).trimEnd()}
 `;
 }
 

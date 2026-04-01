@@ -57,7 +57,7 @@
 - 이 repo에서 앞으로 여러 번 같은 유형의 기능 개발을 반복할 예정일 때
 - frontend / backend / DB / QA처럼 역할 분리가 자주 필요한 repo일 때
 - 팀 규칙이나 verification policy를 repo-specific하게 고정하고 싶을 때
-- Claude/Codex wrapper skill까지 함께 깔아두고 싶을 때
+- Claude plugin assets까지 함께 깔아두고 싶을 때
 
 예를 들어 이런 프롬프트가 좋다.
 
@@ -94,9 +94,9 @@
 추천 시작:
 
 ```bash
-harness interview "I want to add a release checklist assistant to this repo."
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview I want to add a release checklist assistant to this repo.
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 이 시나리오에서 harness는 아래를 한다.
@@ -117,8 +117,8 @@ harness ralph .harness/seeds/<seed-id>.yaml
 추천 시작:
 
 ```bash
-harness ralph path/to/spec.md
-harness ralph path/to/seed.yaml
+/harness-ralph path/to/spec.md
+/harness-ralph path/to/seed.yaml
 ```
 
 이 시나리오는 아래에 잘 맞는다.
@@ -134,20 +134,20 @@ harness ralph path/to/seed.yaml
 
 - 이 repo에서 비슷한 feature를 계속 만들 예정일 때
 - repo-specific verification policy가 중요할 때
-- Claude/Codex 둘 다 같은 운영 감각을 공유하게 하고 싶을 때
+- Claude Code 안에서 repo-specific team workflow를 반복 가능하게 만들고 싶을 때
 
 추천 시작:
 
 ```bash
-harness architect "이 repo는 일반적인 제품 개발 repo다. 기능 개발 시 API, UI, 상태 변경, 검증, 회귀 확인이 자주 함께 발생한다. implementer, QA inspector, reviewer, critic 중심의 repo-specific harness를 설계해줘."
-harness blueprint <architect-id>
-harness scaffold .harness/harness-seeds/<seed-id>.yaml
+/harness-architect 이 repo는 일반적인 제품 개발 repo다. 기능 개발 시 API, UI, 상태 변경, 검증, 회귀 확인이 자주 함께 발생한다. implementer, QA inspector, reviewer, critic 중심의 repo-specific harness를 설계해줘.
+/harness-blueprint <architect-id>
+/harness-scaffold .harness/harness-seeds/<seed-id>.yaml
 ```
 
 그 다음 feature부터는:
 
 ```bash
-harness run "Add a user-facing audit log filter to the admin dashboard"
+/harness-run Add a user-facing audit log filter to the admin dashboard
 ```
 
 ### Scenario 4. 버그 수정 + 회귀 방지
@@ -160,9 +160,9 @@ harness run "Add a user-facing audit log filter to the admin dashboard"
 추천 시작:
 
 ```bash
-harness interview "Users occasionally lose unsaved edits when navigating between tabs. I want to identify the intended behavior, fix the bug, and add regression coverage."
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview Users occasionally lose unsaved edits when navigating between tabs. I want to identify the intended behavior, fix the bug, and add regression coverage.
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 이 시나리오에서는 특히 `interview`가 유용하다.
@@ -185,31 +185,31 @@ cd /path/to/your/app-repo
 ### 1. Repo-specific harness bootstrap
 
 ```bash
-harness architect "이 repo는 일반적인 제품 개발 repo다. 기능 개발 시 API, UI, 상태 변경, 검증, 회귀 확인이 자주 함께 발생한다. implementer, QA inspector, reviewer, critic 중심의 repo-specific harness를 설계해줘."
-harness blueprint <architect-id>
-harness scaffold .harness/harness-seeds/<seed-id>.yaml
+/harness-architect 이 repo는 일반적인 제품 개발 repo다. 기능 개발 시 API, UI, 상태 변경, 검증, 회귀 확인이 자주 함께 발생한다. implementer, QA inspector, reviewer, critic 중심의 repo-specific harness를 설계해줘.
+/harness-blueprint <architect-id>
+/harness-scaffold .harness/harness-seeds/<seed-id>.yaml
 ```
 
 ### 2. 새 기능 구현
 
 ```bash
-harness interview "Add a release checklist assistant to the admin area"
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview Add a release checklist assistant to the admin area
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 ### 3. 버그 수정
 
 ```bash
-harness interview "Users occasionally lose unsaved edits when navigating between tabs. I want to fix the bug and add regression protection."
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview Users occasionally lose unsaved edits when navigating between tabs. I want to fix the bug and add regression protection.
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 ### 4. 한 번에 끝까지
 
 ```bash
-harness run "Add a release checklist assistant to the admin area"
+/harness-run Add a release checklist assistant to the admin area
 ```
 
 `run`은 편하지만, 중요한 기능일수록 `interview -> seed -> ralph`를 권장한다. 요구사항과 acceptance criteria를 immutable artifact로 남길 수 있기 때문이다.

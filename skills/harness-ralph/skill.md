@@ -1,39 +1,34 @@
 ---
 name: harness-ralph
-description: "Hybrid harness Ralph loop. Use when an immutable spec or seed already exists and work must continue until story-by-story verification passes."
+description: "Apply Ralph-style story execution and review inside Claude Code."
 ---
 
 # Harness Ralph
 
-이 스킬은 spec/seed를 PRD로 변환하고 Ralph-style persistence loop를 실행한다.
+이 스킬은 이미 spec/seed가 있을 때 story-by-story execution state를 관리한다.
 
-## 실행
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" ralph <spec-or-seed-path>
-```
-
-resume:
+## Start
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" ralph --resume <run-id>
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal run-init --source "{{ARGUMENTS}}" --json
 ```
 
-## 출력
+## For each story
 
-- `.harness/runs/<run-id>/prd.json`
-- `.harness/runs/<run-id>/loop-state.json`
-- `.harness/runs/<run-id>/progress.md`
-- `.harness/runs/<run-id>/verification.json`
+1. helper output의 `nextStory`를 읽는다.
+2. 해당 story만 구현한다.
+3. verification command를 실행하고 evidence를 모은다.
+4. reviewer verdict를 만든다.
+5. 마지막 story라면 final critic verdict도 만든다.
+6. story result JSON을 작성하고 helper에 반영한다.
 
-## 핵심 원칙
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal run-apply-story --run-id <run-id> --story-result-file <story-result.json> --json
+```
 
-- story 하나씩 구현한다.
-- story 직후 incremental QA를 수행한다.
-- reviewer/critic approval 없이는 완료를 주장하지 않는다.
-- final critic가 requirement 또는 harness ambiguity를 지적하면 `loop-state.json`에 reopen target과 다음 명령을 남긴다.
+## Guardrails
 
-## 참고
-
-- `seed` 이후의 정석 단계는 보통 `ralph`다.
-- `run`은 `seed` 다음 단계가 아니라 interview와 seed까지 포함한 end-to-end entrypoint다.
+- immutable spec/seed는 수정하지 않는다.
+- 한 번에 story 하나만 처리한다.
+- evidence 없는 approve는 허용하지 않는다.
+- `reopen_required`가 나오면 직접 밀어붙이지 말고 suggested command를 따른다.

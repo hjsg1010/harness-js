@@ -1,391 +1,186 @@
-import { spawn } from "node:child_process";
-import { appendFile } from "node:fs/promises";
-
 import { MAX_REPEATED_FAILURES } from "../core/constants.js";
 import type {
   ArchitectInterviewState,
-  CodexRunner,
-  CommandResult,
   InterviewState,
   LoopState,
   PrdDocument,
-  QaVerdict,
   RejectionCategory,
   ReviewVerdict,
-  UserStory,
+  RunArtifacts,
+  StoryResultInput,
   VerificationEntry
 } from "../core/types.js";
 import { createId, nowIso } from "../core/utils.js";
 import {
-  diffSnapshots,
   persistRunArtifacts,
-  resolveRunPaths,
   saveArchitectInterviewState,
   saveInterviewState,
-  saveRepoProfile,
-  snapshotProject
+  saveRepoProfile
 } from "../infra/filesystem.js";
-import { renderHarnessPromptBlock } from "../interview/adaptive.js";
-import { scanBrownfieldContext } from "../interview/brownfield.js";
 import { scanRepoProfile } from "../architect/repo-profile.js";
-
-const QA_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["verdict", "summary", "failureSignature", "findings"],
-  properties: {
-    verdict: { type: "string", enum: ["APPROVE", "REJECT"] },
-    summary: { type: "string" },
-    failureSignature: { type: ["string", "null"] },
-    findings: { type: "array", items: { type: "string" } },
-    suggestedVerificationCommands: { type: "array", items: { type: "string" } }
-  }
-} satisfies Record<string, unknown>;
-
-const REVIEW_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["verdict", "summary", "failureSignature", "findings"],
-  properties: {
-    verdict: { type: "string", enum: ["APPROVE", "REJECT"] },
-    summary: { type: "string" },
-    failureSignature: { type: ["string", "null"] },
-    findings: { type: "array", items: { type: "string" } },
-    rejectionCategory: {
-      type: ["string", "null"],
-      enum: [null, "implementation_gap", "requirement_ambiguity", "harness_design_gap"]
-    },
-    followUpStories: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["title", "acceptanceCriteria"],
-        properties: {
-          title: { type: "string" },
-          acceptanceCriteria: { type: "array", items: { type: "string" } },
-          verificationCommands: { type: "array", items: { type: "string" } }
-        }
-      }
-    }
-  }
-} satisfies Record<string, unknown>;
-
-const FINAL_CRITIC_SCHEMA = {
-  ...REVIEW_SCHEMA,
-  properties: {
-    ...(REVIEW_SCHEMA.properties as Record<string, unknown>),
-    rejectionCategory: {
-      type: ["string", "null"],
-      enum: [null, "implementation_gap", "requirement_ambiguity", "harness_design_gap"]
-    }
-  }
-} satisfies Record<string, unknown>;
+import { scanBrownfieldContext } from "../interview/brownfield.js";
 
 export class RalphService {
-  constructor(private readonly runner: CodexRunner) {}
-
-  async execute(
+  async applyStoryResult(
     cwd: string,
     runId: string,
-    artifacts: {
-      prd: PrdDocument;
-      loopState: LoopState;
-      progress: string;
-      verification: VerificationEntry[];
-    }
-  ): Promise<{
-    prd: PrdDocument;
-    loopState: LoopState;
-    progress: string;
-    verification: VerificationEntry[];
-  }> {
-    const runPaths = resolveRunPaths(cwd, runId);
-    let current: {
-      prd: PrdDocument;
-      loopState: LoopState;
-      progress: string;
-      verification: VerificationEntry[];
-    } = {
+    artifacts: RunArtifacts,
+    input: StoryResultInput
+  ): Promise<RunArtifacts> {
+    const current: RunArtifacts = {
       ...artifacts,
+      prd: {
+        ...artifacts.prd,
+        stories: artifacts.prd.stories.map((story) => ({ ...story }))
+      },
       loopState: {
         ...artifacts.loopState,
-        status: "running",
-        updatedAt: nowIso(),
+        repeatedFailures: { ...artifacts.loopState.repeatedFailures },
         reopenHistory: [...(artifacts.loopState.reopenHistory ?? [])]
       },
-      prd: { ...artifacts.prd, status: "running" }
+      verification: [...artifacts.verification]
     };
-    this._currentHarness = current.prd.activeHarness ?? null;
 
-    while (true) {
-      const nextStory = current.prd.stories.find((story) => !story.passes);
-      if (!nextStory) {
-        const finalCritic = this.normalizeCriticVerdict(await this.finalCritic(cwd, current.prd));
-        current.progress += `\n## Final Critic ${nowIso()}\n- Verdict: ${finalCritic.verdict}\n- Summary: ${finalCritic.summary}\n`;
-        if (finalCritic.verdict === "APPROVE") {
-          current.prd.status = "completed";
-          current.loopState.status = "completed";
-          current.loopState.currentStoryId = null;
-          current.loopState.updatedAt = nowIso();
-          await persistRunArtifacts(cwd, runId, current);
-          return current;
-        }
+    const story = current.prd.stories.find((item) => item.id === input.storyId);
+    if (!story) {
+      throw new Error(`Story ${input.storyId} not found in run ${runId}.`);
+    }
 
-        if (
-          finalCritic.rejectionCategory === "requirement_ambiguity" ||
-          finalCritic.rejectionCategory === "harness_design_gap"
-        ) {
-          const reopen = await this.prepareReopenState(cwd, current.prd, finalCritic);
-          current.loopState.reopenHistory.push({
-            target: reopen.target,
-            stateId: reopen.stateId,
-            reason: finalCritic.rejectionCategory,
-            command: reopen.command,
-            recordedAt: nowIso()
-          });
-          current.prd.status = "reopen_required";
-          current.loopState.status = "reopen_required";
-          current.loopState.currentStoryId = null;
-          current.loopState.reopenTarget = reopen.target;
-          current.loopState.reopenStateId = reopen.stateId;
-          current.loopState.suggestedNextCommand = reopen.command;
-          current.loopState.reopenReason = finalCritic.rejectionCategory;
-          current.loopState.suggestedQuestionFocus = reopen.questionFocus;
-          current.loopState.suggestedRepairFocus = reopen.repairFocus;
-          current.loopState.updatedAt = nowIso();
-          await persistRunArtifacts(cwd, runId, current);
-          return current;
-        }
+    current.loopState.status = "running";
+    current.loopState.currentStoryId = story.id;
+    current.loopState.updatedAt = nowIso();
 
-        const followUps =
-          finalCritic.followUpStories?.map((story, index) => ({
-            id: `story_followup_${String(current.prd.stories.length + index + 1).padStart(3, "0")}`,
-            title: story.title,
-            acceptanceCriteria: story.acceptanceCriteria,
-            verificationCommands: story.verificationCommands ?? [],
-            passes: false,
-            attempts: 0,
-            lastReviewerVerdict: "pending" as const
-          })) ?? [];
+    const commandsPassed = input.commandResults.every((result) => result.exitCode === 0);
+    const verificationEntry: VerificationEntry = {
+      storyId: story.id,
+      changedFiles: input.changedFiles,
+      implementerOutput: input.implementerOutput,
+      qaVerdict: input.qaVerdict,
+      reviewerVerdict: input.reviewerVerdict,
+      commandResults: input.commandResults,
+      recordedAt: nowIso()
+    };
+    current.verification.push(verificationEntry);
+    current.progress += [
+      `\n## Story ${story.id} - ${story.title}`,
+      `- Changed files: ${input.changedFiles.join(", ") || "none"}`,
+      `- QA: ${input.qaVerdict.verdict} | ${input.qaVerdict.summary}`,
+      `- Reviewer: ${input.reviewerVerdict.verdict} | ${input.reviewerVerdict.summary}`
+    ].join("\n");
 
-        if (followUps.length === 0) {
-          followUps.push({
-            id: `story_followup_${String(current.prd.stories.length + 1).padStart(3, "0")}`,
-            title: "Address final critic findings",
-            acceptanceCriteria: finalCritic.findings.length > 0 ? finalCritic.findings : [finalCritic.summary],
-            verificationCommands: [],
-            passes: false,
-            attempts: 0,
-            lastReviewerVerdict: "pending"
-          });
-        }
-
-        current.prd.stories.push(...followUps);
-        current.prd.status = "running";
-        current.loopState.status = "running";
-        await persistRunArtifacts(cwd, runId, current);
-        continue;
+    if (
+      input.qaVerdict.verdict === "APPROVE" &&
+      input.reviewerVerdict.verdict === "APPROVE" &&
+      commandsPassed
+    ) {
+      this.markStoryPassed(current.prd, story.id);
+      delete current.loopState.repeatedFailures[story.id];
+    } else {
+      this.markStoryRejected(current.prd, story.id);
+      const signature =
+        input.reviewerVerdict.failureSignature ??
+        input.qaVerdict.failureSignature ??
+        "unknown-failure";
+      const repeated = current.loopState.repeatedFailures[story.id];
+      if (repeated && repeated.signature === signature) {
+        repeated.count += 1;
+      } else {
+        current.loopState.repeatedFailures[story.id] = { signature, count: 1 };
       }
 
+      if (current.loopState.repeatedFailures[story.id].count >= MAX_REPEATED_FAILURES) {
+        current.loopState.status = "blocked";
+        current.loopState.currentStoryId = story.id;
+        current.prd.status = "blocked";
+        story.lastReviewerVerdict = "blocked";
+        current.loopState.updatedAt = nowIso();
+        await persistRunArtifacts(cwd, runId, current);
+        return current;
+      }
+
+      current.prd.status = "running";
+      current.loopState.updatedAt = nowIso();
+      await persistRunArtifacts(cwd, runId, current);
+      return current;
+    }
+
+    const nextStory = current.prd.stories.find((candidate) => !candidate.passes);
+    if (nextStory) {
+      current.prd.status = "running";
+      current.loopState.status = "running";
       current.loopState.currentStoryId = nextStory.id;
       current.loopState.updatedAt = nowIso();
       await persistRunArtifacts(cwd, runId, current);
+      return current;
+    }
 
-      const before = await snapshotProject(cwd);
-      const implementerOutput = await this.runner.execText(this.buildImplementerPrompt(nextStory, runPaths.root), {
-        cwd,
-        sandbox: "workspace-write"
-      });
-      const after = await snapshotProject(cwd);
-      const changedFiles = diffSnapshots(before, after);
-
-      const qaVerdict = await this.runner.execJson<QaVerdict>(
-        this.buildQaPrompt(nextStory, changedFiles),
-        QA_SCHEMA,
-        {
-          cwd,
-          sandbox: "read-only"
-        }
-      );
-
-      const commandResults = await this.runVerificationCommands(nextStory.verificationCommands, cwd);
-      const commandsPassed = commandResults.every((result) => result.exitCode === 0);
-
-      let reviewerVerdict: ReviewVerdict | null = null;
-      if (qaVerdict.verdict === "APPROVE" && commandsPassed) {
-        reviewerVerdict = await this.runner.reviewJson<ReviewVerdict>(
-          this.buildReviewerPrompt(nextStory, changedFiles, commandResults),
-          REVIEW_SCHEMA,
-          { cwd }
-        );
-      } else {
-        reviewerVerdict = {
-          verdict: "REJECT",
-          summary: "Local QA or verification commands failed before reviewer approval.",
-          failureSignature: qaVerdict.failureSignature ?? "pre-review-failure",
-          findings: [
-            ...qaVerdict.findings,
-            ...commandResults
-              .filter((result) => result.exitCode !== 0)
-              .map((result) => `Command failed: ${result.command}`)
-          ]
-        };
-      }
-
-      current.verification.push({
-        storyId: nextStory.id,
-        changedFiles,
-        implementerOutput,
-        qaVerdict,
-        reviewerVerdict,
-        commandResults,
-        recordedAt: nowIso()
-      });
-      current.progress += [
-        `\n## Story ${nextStory.id} - ${nextStory.title}`,
-        `- Changed files: ${changedFiles.join(", ") || "none detected"}`,
-        `- QA: ${qaVerdict.verdict} | ${qaVerdict.summary}`,
-        `- Reviewer: ${reviewerVerdict.verdict} | ${reviewerVerdict.summary}`
-      ].join("\n");
-
-      if (qaVerdict.verdict === "APPROVE" && reviewerVerdict.verdict === "APPROVE" && commandsPassed) {
-        this.markStoryPassed(current.prd, nextStory.id);
-        delete current.loopState.repeatedFailures[nextStory.id];
-      } else {
-        this.markStoryRejected(current.prd, nextStory.id);
-        const signature =
-          reviewerVerdict.failureSignature ?? qaVerdict.failureSignature ?? "unknown-failure";
-        const repeated = current.loopState.repeatedFailures[nextStory.id];
-        if (repeated && repeated.signature === signature) {
-          repeated.count += 1;
-        } else {
-          current.loopState.repeatedFailures[nextStory.id] = { signature, count: 1 };
-        }
-
-        if (current.loopState.repeatedFailures[nextStory.id].count >= MAX_REPEATED_FAILURES) {
-          current.loopState.status = "blocked";
-          current.prd.status = "blocked";
-          const story = current.prd.stories.find((item) => item.id === nextStory.id);
-          if (story) {
-            story.lastReviewerVerdict = "blocked";
-          }
-          await persistRunArtifacts(cwd, runId, current);
-          return current;
-        }
-      }
-
+    const finalCritic = input.finalCritic ? this.normalizeCriticVerdict(input.finalCritic) : null;
+    if (!finalCritic || finalCritic.verdict === "APPROVE") {
+      current.prd.status = "completed";
+      current.loopState.status = "completed";
+      current.loopState.currentStoryId = null;
       current.loopState.updatedAt = nowIso();
       await persistRunArtifacts(cwd, runId, current);
-      await appendFile(runPaths.progressPath, "", "utf8");
+      return current;
     }
-  }
 
-  private buildImplementerPrompt(story: UserStory, runRoot: string): string {
-    return `You are implementing one PRD story in a Ralph-style persistence loop.
-
-Story ID: ${story.id}
-Title: ${story.title}
-Acceptance Criteria:
-${story.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}
-Boundary Hints:
-${story.boundaryHints?.map((hint) => `- ${hint}`).join("\n") || "- none"}
-Verification Focus:
-${story.verificationFocus?.map((focus) => `- ${focus}`).join("\n") || "- none"}
-${renderHarnessPromptBlock(this.currentHarness)}
-
-Rules:
-- Make the minimal changes needed to satisfy the story.
-- Do not edit immutable seed/spec artifacts.
-- Keep all temporary artifacts under ${runRoot}.
-- Prefer explicit verification-friendly changes.
-`;
-  }
-
-  private buildQaPrompt(story: UserStory, changedFiles: string[]): string {
-    return `You are the incremental QA inspector for a hybrid harness.
-
-Story: ${story.title}
-Acceptance Criteria:
-${story.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}
-
-Changed files:
-${changedFiles.map((file) => `- ${file}`).join("\n") || "- none"}
-Boundary Hints:
-${story.boundaryHints?.map((hint) => `- ${hint}`).join("\n") || "- none"}
-Verification Focus:
-${story.verificationFocus?.map((focus) => `- ${focus}`).join("\n") || "- none"}
-${renderHarnessPromptBlock(this.currentHarness)}
-
-Focus on:
-- API / CLI contracts
-- file output correctness
-- state transition consistency
-- path consistency
-
-Reject if the changed boundary is likely mismatched.
-`;
-  }
-
-  private buildReviewerPrompt(
-    story: UserStory,
-    changedFiles: string[],
-    commandResults: CommandResult[]
-  ): string {
-    return `Review the implementation of this story and return JSON only.
-
-Story: ${story.title}
-Acceptance Criteria:
-${story.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n")}
-
-Changed files:
-${changedFiles.map((file) => `- ${file}`).join("\n") || "- none"}
-
-Verification evidence:
-${commandResults.map((result) => `- ${result.command}: exit ${result.exitCode}`).join("\n") || "- none"}
-Boundary Hints:
-${story.boundaryHints?.map((hint) => `- ${hint}`).join("\n") || "- none"}
-Verification Focus:
-${story.verificationFocus?.map((focus) => `- ${focus}`).join("\n") || "- none"}
-${renderHarnessPromptBlock(this.currentHarness)}
-
-Approve only if the story is clearly complete with fresh evidence.
-`;
-  }
-
-  private async finalCritic(cwd: string, prd: PrdDocument): Promise<ReviewVerdict> {
-    return this.runner.reviewJson<ReviewVerdict>(
-      `You are the final critic for a Ralph-style completion gate.
-
-Source Seed ID: ${prd.sourceSeedId}
-Stories:
-${prd.stories
-  .map(
-    (story) =>
-      `- ${story.id} | ${story.title} | passes=${story.passes} | attempts=${story.attempts} | verdict=${story.lastReviewerVerdict}`
-  )
-  .join("\n")}
-${renderHarnessPromptBlock(prd.activeHarness)}
-
-Approve only when all stories are credibly complete.
-If not, reject and set rejectionCategory to one of:
-- implementation_gap
-- requirement_ambiguity
-- harness_design_gap
-
-Use follow-up stories only for implementation_gap.
-`,
-      FINAL_CRITIC_SCHEMA,
-      { cwd }
-    );
-  }
-
-  private async runVerificationCommands(commands: string[], cwd: string): Promise<CommandResult[]> {
-    const results: CommandResult[] = [];
-    for (const command of commands) {
-      results.push(await runShellCommand(command, cwd));
+    current.progress += `\n## Final Critic ${nowIso()}\n- Verdict: ${finalCritic.verdict}\n- Summary: ${finalCritic.summary}\n`;
+    if (
+      finalCritic.rejectionCategory === "requirement_ambiguity" ||
+      finalCritic.rejectionCategory === "harness_design_gap"
+    ) {
+      const reopen = await this.prepareReopenState(cwd, current.prd, finalCritic);
+      current.loopState.reopenHistory.push({
+        target: reopen.target,
+        stateId: reopen.stateId,
+        reason: finalCritic.rejectionCategory,
+        command: reopen.command,
+        recordedAt: nowIso()
+      });
+      current.prd.status = "reopen_required";
+      current.loopState.status = "reopen_required";
+      current.loopState.currentStoryId = null;
+      current.loopState.reopenTarget = reopen.target;
+      current.loopState.reopenStateId = reopen.stateId;
+      current.loopState.suggestedNextCommand = reopen.command;
+      current.loopState.reopenReason = finalCritic.rejectionCategory;
+      current.loopState.suggestedQuestionFocus = reopen.questionFocus;
+      current.loopState.suggestedRepairFocus = reopen.repairFocus;
+      current.loopState.updatedAt = nowIso();
+      await persistRunArtifacts(cwd, runId, current);
+      return current;
     }
-    return results;
+
+    const followUps =
+      finalCritic.followUpStories?.map((followUp, index) => ({
+        id: `story_followup_${String(current.prd.stories.length + index + 1).padStart(3, "0")}`,
+        title: followUp.title,
+        acceptanceCriteria: followUp.acceptanceCriteria,
+        verificationCommands: followUp.verificationCommands ?? [],
+        passes: false,
+        attempts: 0,
+        lastReviewerVerdict: "pending" as const
+      })) ?? [];
+
+    if (followUps.length === 0) {
+      followUps.push({
+        id: `story_followup_${String(current.prd.stories.length + 1).padStart(3, "0")}`,
+        title: "Address final critic findings",
+        acceptanceCriteria: finalCritic.findings.length > 0 ? finalCritic.findings : [finalCritic.summary],
+        verificationCommands: [],
+        passes: false,
+        attempts: 0,
+        lastReviewerVerdict: "pending"
+      });
+    }
+
+    current.prd.stories.push(...followUps);
+    current.prd.status = "running";
+    current.loopState.status = "running";
+    current.loopState.currentStoryId = followUps[0]?.id ?? null;
+    current.loopState.updatedAt = nowIso();
+    await persistRunArtifacts(cwd, runId, current);
+    return current;
   }
 
   private markStoryPassed(prd: PrdDocument, storyId: string): void {
@@ -405,12 +200,6 @@ Use follow-up stories only for implementation_gap.
     story.attempts += 1;
     story.lastReviewerVerdict = "rejected";
   }
-
-  private get currentHarness() {
-    return this._currentHarness;
-  }
-
-  private _currentHarness = null as PrdDocument["activeHarness"];
 
   private normalizeCriticVerdict(verdict: ReviewVerdict): ReviewVerdict {
     if (verdict.verdict === "APPROVE") {
@@ -441,7 +230,7 @@ Use follow-up stories only for implementation_gap.
     if (verdict.rejectionCategory === "requirement_ambiguity") {
       const brownfieldContext = await scanBrownfieldContext(cwd);
       const stateId = createId("interview");
-      const questionFocus = buildQuestionFocus(verdict);
+      const questionFocus = verdict.suggestedQuestionFocus ?? buildQuestionFocus(verdict);
       const state: InterviewState = {
         interviewId: stateId,
         lane: "feature",
@@ -490,7 +279,7 @@ Use follow-up stories only for implementation_gap.
       return {
         target: "feature",
         stateId,
-        command: `harness interview --resume ${stateId}`,
+        command: `harness internal feature-init --resume ${stateId} --json`,
         questionFocus,
         repairFocus: null
       };
@@ -499,7 +288,7 @@ Use follow-up stories only for implementation_gap.
     const repoProfile = await scanRepoProfile(cwd);
     await saveRepoProfile(cwd, repoProfile);
     const stateId = createId("architect");
-    const repairFocus = buildRepairFocus(verdict, prd);
+    const repairFocus = verdict.suggestedRepairFocus ?? buildRepairFocus(verdict, prd);
     const state: ArchitectInterviewState = {
       interviewId: stateId,
       lane: "architect",
@@ -538,7 +327,11 @@ Use follow-up stories only for implementation_gap.
             work_units: { score: 0.5, justification: "Needs better work-unit coverage", gap: verdict.summary },
             team_topology: { score: 0.5, justification: "May need new specialist split", gap: verdict.summary },
             verification_strategy: { score: 0.1, justification: "Critic reported verification design gap", gap: verdict.summary },
-            user_operating_style: { score: 0.6, justification: "Base usage style exists", gap: "Clarify expected operator experience" }
+            user_operating_style: {
+              score: 0.6,
+              justification: "Base usage style exists",
+              gap: "Clarify expected operator experience"
+            }
           },
           weakestDimension: "verification_strategy",
           weakestDimensionRationale: verdict.summary
@@ -551,7 +344,7 @@ Use follow-up stories only for implementation_gap.
     return {
       target: "harness",
       stateId,
-      command: `harness architect --resume ${stateId}`,
+      command: `harness internal architect-init --resume ${stateId} --json`,
       questionFocus: null,
       repairFocus
     };
@@ -603,31 +396,4 @@ function normalizeGuidance(value: string): string {
 
 function uniqueGuidance(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.length > 0))];
-}
-
-function runShellCommand(command: string, cwd: string): Promise<CommandResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-lc", command], {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolve({
-        command,
-        exitCode: exitCode ?? 1,
-        stdout,
-        stderr
-      });
-    });
-  });
 }

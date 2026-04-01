@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: "Hybrid harness implementer. Executes one PRD story at a time with Codex-backed workspace changes."
+description: "Hybrid harness implementer. Executes one PRD story at a time inside Claude Code."
 ---
 
 # Implementer

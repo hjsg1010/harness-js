@@ -1,7 +1,6 @@
 import { basename } from "node:path";
 
 import type {
-  CodexRunner,
   HarnessBlueprint,
   HarnessBlueprintDocument,
   HarnessSeedDocument
@@ -20,68 +19,11 @@ import {
   renderHarnessSeedYaml
 } from "../infra/serializers.js";
 
-const BLUEPRINT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "title",
-    "harnessGoal",
-    "repoProfileSummary",
-    "workUnits",
-    "teamTopology",
-    "verificationStrategy",
-    "userOperatingStyle",
-    "agentRoster",
-    "skillRoster",
-    "orchestrationProtocol",
-    "constraints",
-    "generationTargets"
-  ],
-  properties: {
-    title: { type: "string" },
-    harnessGoal: { type: "string" },
-    repoProfileSummary: { type: "array", items: { type: "string" } },
-    workUnits: { type: "array", items: { type: "string" } },
-    teamTopology: { type: "array", items: { type: "string" } },
-    verificationStrategy: { type: "array", items: { type: "string" } },
-    userOperatingStyle: { type: "array", items: { type: "string" } },
-    agentRoster: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "role", "responsibilities"],
-        properties: {
-          name: { type: "string" },
-          role: { type: "string" },
-          responsibilities: { type: "array", items: { type: "string" } }
-        }
-      }
-    },
-    skillRoster: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "purpose"],
-        properties: {
-          name: { type: "string" },
-          purpose: { type: "string" }
-        }
-      }
-    },
-    orchestrationProtocol: { type: "array", items: { type: "string" } },
-    constraints: { type: "array", items: { type: "string" } },
-    generationTargets: { type: "array", items: { type: "string" } }
-  }
-} satisfies Record<string, unknown>;
-
 export class HarnessBlueprintService {
-  constructor(private readonly runner: CodexRunner) {}
-
-  async generateFromInterview(
+  async generateFromDraft(
     cwd: string,
     architectInterviewId: string,
+    blueprintDraft: HarnessBlueprint,
     options: { force?: boolean } = {}
   ): Promise<{
     blueprint: HarnessBlueprintDocument;
@@ -98,14 +40,6 @@ export class HarnessBlueprintService {
       );
     }
     const repoProfile = await loadRepoProfile(cwd, interview.repoProfileId);
-    const blueprintDraft = await this.runner.execJson<HarnessBlueprint>(
-      this.buildBlueprintPrompt(interview.initialIdea, interview.currentAmbiguity, repoProfile.summary, interview.rounds),
-      BLUEPRINT_SCHEMA,
-      {
-        cwd,
-        sandbox: "read-only"
-      }
-    );
 
     const createdAt = nowIso();
     const seedId = createId("harness_seed");
@@ -214,8 +148,7 @@ export class HarnessBlueprintService {
       generation_targets: {
         slug: slugify(blueprint.title),
         claude_agents: true,
-        claude_skills: true,
-        codex_skills: true
+        claude_skills: true
       },
       metadata: {
         seed_id: blueprint.metadata.seedId,
@@ -257,8 +190,7 @@ export class HarnessBlueprintService {
       generation_targets: {
         slug: slugify(blueprint.title),
         claude_agents: true,
-        claude_skills: true,
-        codex_skills: true
+        claude_skills: true
       },
       metadata: {
         seed_id: blueprint.metadata.seedId,
@@ -299,8 +231,19 @@ Requirements:
 - Team topology must match the work units.
 - Skill roster must explain the purpose of each generated skill.
 - Constraints must preserve user-edited generated files.
-- Generation targets must stay compatible with Claude and Codex assets.
+- Generation targets must stay compatible with Claude plugin assets.
 `;
+  }
+
+  async createDraftPrompt(cwd: string, architectInterviewId: string): Promise<string> {
+    const interview = await loadArchitectInterviewState(cwd, architectInterviewId);
+    const repoProfile = await loadRepoProfile(cwd, interview.repoProfileId);
+    return this.buildBlueprintPrompt(
+      interview.initialIdea,
+      interview.currentAmbiguity,
+      repoProfile.summary,
+      interview.rounds
+    );
   }
 }
 
@@ -311,9 +254,6 @@ function compactGenerationTargets(seed: HarnessSeedDocument): string[] {
   }
   if (seed.generation_targets.claude_skills) {
     targets.push("claude-skills");
-  }
-  if (seed.generation_targets.codex_skills) {
-    targets.push("codex-skills");
   }
   return targets;
 }

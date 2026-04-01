@@ -1,10 +1,9 @@
 import { INTERVIEW_THRESHOLD, BROWNFIELD_WEIGHTS, GREENFIELD_WEIGHTS } from "../core/constants.js";
 import type {
   AmbiguityBreakdown,
-  CodexRunner,
+  FeatureRoundInput,
   InterviewState,
-  QuestionDraft,
-  ScoreDraft
+  QuestionDraft
 } from "../core/types.js";
 import { clampScore, createId, nowIso } from "../core/utils.js";
 import {
@@ -24,8 +23,6 @@ const GREENFIELD_DIMENSIONS = ["goal", "constraints", "criteria"] as const;
 const BROWNFIELD_DIMENSIONS = ["goal", "constraints", "criteria", "context"] as const;
 
 export class InterviewService {
-  constructor(private readonly runner: CodexRunner) {}
-
   async create(initialIdea: string, cwd: string): Promise<InterviewState> {
     const brownfieldContext = await scanBrownfieldContext(cwd);
     const activeHarness = await tryLoadActiveHarness(cwd);
@@ -59,52 +56,32 @@ export class InterviewService {
     return loadInterviewState(cwd, interviewId);
   }
 
-  async nextQuestion(state: InterviewState, cwd: string): Promise<QuestionDraft> {
-    return this.runner.execJson<QuestionDraft>(
-      this.buildQuestionPrompt(state),
-      this.getQuestionSchema(state),
-      {
-        cwd,
-        sandbox: "read-only"
-      }
-    );
+  createQuestionPrompt(state: InterviewState): string {
+    return this.buildQuestionPrompt(state);
   }
 
-  async answer(
+  createQuestionSchema(state: InterviewState) {
+    return this.getQuestionSchema(state);
+  }
+
+  async applyRound(
     state: InterviewState,
-    draft: QuestionDraft,
-    answer: string,
+    input: FeatureRoundInput,
     cwd: string
   ): Promise<InterviewState> {
-    const scored = await this.runner.execJson<ScoreDraft>(
-      this.buildScorePrompt(state, draft, answer),
-      this.getScoreSchema(state),
-      {
-        cwd,
-        sandbox: "read-only"
-      }
-    );
-
-    const breakdown: AmbiguityBreakdown = {
-      goal: scored.goal,
-      constraints: scored.constraints,
-      criteria: scored.criteria,
-      context: scored.context
-    };
-
-    const ambiguity = this.computeAmbiguity(state, breakdown);
+    const ambiguity = this.computeAmbiguity(state, input.breakdown);
     const round = {
       roundNumber: state.rounds.length + 1,
-      targeting: draft.targeting,
-      rationale: draft.rationale,
-      question: draft.question,
-      answer,
+      targeting: input.targeting,
+      rationale: input.rationale,
+      question: input.question,
+      answer: input.answer,
       askedAt: nowIso(),
       answeredAt: nowIso(),
       ambiguity,
-      breakdown,
-      weakestDimension: scored.weakestDimension,
-      weakestDimensionRationale: scored.weakestDimensionRationale
+      breakdown: input.breakdown,
+      weakestDimension: input.weakestDimension,
+      weakestDimensionRationale: input.weakestDimensionRationale
     };
 
     const updated: InterviewState = {
@@ -117,6 +94,14 @@ export class InterviewService {
 
     await saveInterviewState(cwd, updated);
     return updated;
+  }
+
+  createScorePrompt(state: InterviewState, draft: QuestionDraft, answer: string): string {
+    return this.buildScorePrompt(state, draft, answer);
+  }
+
+  createScoreSchema(state: InterviewState) {
+    return this.getScoreSchema(state);
   }
 
   formatProgress(state: InterviewState): string {

@@ -149,7 +149,7 @@ function buildHarnessBlueprintFixture(): HarnessBlueprintDocument {
       "synthesizer merges findings into final report"
     ],
     constraints: ["Keep outputs local", "Do not overwrite user-edited generated files"],
-    generationTargets: ["claude-agents", "claude-skills", "codex-skills"],
+    generationTargets: ["claude-agents", "claude-skills"],
     metadata: {
       blueprintId: "blueprint_fixed",
       seedId: "harness_seed_fixed",
@@ -191,12 +191,11 @@ function buildHarnessSeedFixture(): HarnessSeedDocument {
         "compare findings across sources"
       ]
     },
-    generation_targets: {
-      slug: "research-harness",
-      claude_agents: true,
-      claude_skills: true,
-      codex_skills: true
-    },
+      generation_targets: {
+        slug: "research-harness",
+        claude_agents: true,
+        claude_skills: true
+      },
     metadata: {
       seed_id: "harness_seed_fixed",
       blueprint_id: "blueprint_fixed",

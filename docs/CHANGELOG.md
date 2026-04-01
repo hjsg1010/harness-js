@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-01
+
+- Claude-native cleanup: removed Codex-first runtime paths, added slash commands plus internal helpers, and simplified generated assets to Claude plugin surfaces. [details](tasks/2026-04-01_claude_native_cleanup_result.md)
+
 ## 2026-03-31
 
 - Phase 4 execution intelligence: added repo-aware story planning, generated contract references, eval/live smoke entrypoints, and richer reopen guidance. [details](tasks/2026-03-31_phase4_repo_aware_execution_intelligence_result.md)

@@ -83,7 +83,7 @@ export class HarnessScaffoldService {
     );
 
     for (const agent of seed.agents) {
-      files[join(".claude/agents", `${slug}-${agent.name}.md`)] = renderClaudeAgent(
+      files[join("agents", `${slug}-${agent.name}.md`)] = renderClaudeAgent(
         slug,
         agent.name,
         agent.role,
@@ -92,19 +92,14 @@ export class HarnessScaffoldService {
       );
     }
 
-    files[join(".claude/skills", `${slug}-orchestrator`, "skill.md")] = renderClaudeSkill(
+    files[join("skills", `${slug}-orchestrator`, "skill.md")] = renderClaudeSkill(
       `${slug}-orchestrator`,
       `Coordinate the ${slug} harness.`,
       renderOrchestratorInstructions(
         slug,
         validationChecklistRelativePath,
-        `bash "\${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" architect "<repo-goal>"`
+        `bash "\${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal architect-init --goal "<repo-goal>" --json`
       )
-    );
-    files[join(".agents/skills", `${slug}-orchestrator`, "SKILL.md")] = renderCodexSkill(
-      `${slug}-orchestrator`,
-      `Coordinate the ${slug} harness.`,
-      renderOrchestratorInstructions(slug, validationChecklistRelativePath, `node dist/cli.js architect "<repo-goal>"`)
     );
 
     for (const skill of seed.skills) {
@@ -116,12 +111,7 @@ export class HarnessScaffoldService {
         seed.work_units,
         validationChecklistRelativePath
       );
-      files[join(".claude/skills", skillSlug, "skill.md")] = renderClaudeSkill(
-        skillSlug,
-        skill.purpose,
-        instruction
-      );
-      files[join(".agents/skills", skillSlug, "SKILL.md")] = renderCodexSkill(
+      files[join("skills", skillSlug, "skill.md")] = renderClaudeSkill(
         skillSlug,
         skill.purpose,
         instruction
@@ -193,8 +183,7 @@ export class HarnessScaffoldService {
       generation_targets: {
         slug: slugify(blueprint.title),
         claude_agents: true,
-        claude_skills: true,
-        codex_skills: true
+        claude_skills: true
       },
       metadata: {
         seed_id: blueprint.metadata.seedId,
@@ -281,25 +270,13 @@ ${instruction}
 `;
 }
 
-function renderCodexSkill(name: string, description: string, instruction: string): string {
-  return `---
-name: ${name}
-description: "${description}"
----
-
-# ${name}
-
-${instruction}
-`;
-}
-
 function renderValidationChecklist(seed: HarnessSeedDocument): string {
   return `# Validation Checklist
 
 - Confirm generated agents match work units: ${seed.work_units.join(", ") || "none"}
 - Confirm verification strategy: ${seed.verification.strategy.join(", ") || "none"}
 - Confirm user-edited generated files are preserved on re-scaffold
-- Confirm orchestrator and wrapper skills call the intended local runtime
+- Confirm orchestrator and plugin skills call the intended internal helper runtime
 `;
 }
 

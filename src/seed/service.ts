@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import type { CodexRunner, InterviewState, SeedBlueprint, SeedDocument, SpecDocument } from "../core/types.js";
+import type { InterviewState, SeedBlueprint, SeedDocument, SpecDocument } from "../core/types.js";
 import { createId, nowIso, slugify } from "../core/utils.js";
 import {
   loadInterviewState,
@@ -15,50 +15,11 @@ import {
 } from "../infra/serializers.js";
 import { renderHarnessPromptBlock } from "../interview/adaptive.js";
 
-const BLUEPRINT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "title",
-    "goal",
-    "constraints",
-    "nonGoals",
-    "acceptanceCriteria",
-    "transcriptSummary",
-    "technicalContext",
-    "ontology"
-  ],
-  properties: {
-    title: { type: "string" },
-    goal: { type: "string" },
-    constraints: { type: "array", items: { type: "string" } },
-    nonGoals: { type: "array", items: { type: "string" } },
-    acceptanceCriteria: { type: "array", items: { type: "string" } },
-    transcriptSummary: { type: "array", items: { type: "string" } },
-    technicalContext: { type: "array", items: { type: "string" } },
-    ontology: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["name", "type", "fields", "relationships"],
-        properties: {
-          name: { type: "string" },
-          type: { type: "string" },
-          fields: { type: "array", items: { type: "string" } },
-          relationships: { type: "array", items: { type: "string" } }
-        }
-      }
-    }
-  }
-} satisfies Record<string, unknown>;
-
 export class SeedService {
-  constructor(private readonly runner: CodexRunner) {}
-
-  async generateFromInterview(
+  async generateFromDraft(
     cwd: string,
     interviewId: string,
+    blueprint: SeedBlueprint,
     options: { force?: boolean } = {}
   ): Promise<{ spec: SpecDocument; seed: SeedDocument; specPath: string; seedPath: string }> {
     const interview = await loadInterviewState(cwd, interviewId);
@@ -69,15 +30,6 @@ export class SeedService {
         )} exceeds threshold ${interview.threshold.toFixed(2)}.`
       );
     }
-
-    const blueprint = await this.runner.execJson<SeedBlueprint>(
-      this.buildBlueprintPrompt(interview),
-      BLUEPRINT_SCHEMA,
-      {
-        cwd,
-        sandbox: "read-only"
-      }
-    );
 
     const createdAt = nowIso();
     const seedId = createId("seed");
@@ -129,6 +81,10 @@ export class SeedService {
     const seedPath = await saveSeedDocument(cwd, `${seedId}.yaml`, renderSeedYaml(seed));
 
     return { spec, seed, specPath, seedPath };
+  }
+
+  createDraftPrompt(interview: InterviewState): string {
+    return this.buildBlueprintPrompt(interview);
   }
 
   loadSourceFromContent(path: string, content: string): { spec: SpecDocument; seed: SeedDocument } {

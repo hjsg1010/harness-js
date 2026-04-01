@@ -186,8 +186,16 @@ function detectConventions(
   if (files.some((file) => file.startsWith("docs/"))) {
     conventions.push("Documentation under docs/");
   }
-  if (files.some((file) => file.startsWith(".claude/") || file.startsWith(".agents/"))) {
-    conventions.push("Agent and skill assets tracked in repo");
+  if (
+    files.some(
+      (file) =>
+        file.startsWith("commands/") ||
+        file.startsWith("agents/") ||
+        file.startsWith("skills/") ||
+        file.startsWith(".claude-plugin/")
+    )
+  ) {
+    conventions.push("Claude plugin assets tracked in repo");
   }
   return conventions;
 }
@@ -200,8 +208,16 @@ function detectRiskSurfaces(files: string[], scripts: Record<string, string>): s
   if (scripts.test) {
     risks.push("Verification depends on local test scripts");
   }
-  if (files.some((file) => file.startsWith(".claude/") || file.startsWith(".agents/"))) {
-    risks.push("Generated agent and skill files can diverge from repo intent");
+  if (
+    files.some(
+      (file) =>
+        file.startsWith("commands/") ||
+        file.startsWith("agents/") ||
+        file.startsWith("skills/") ||
+        file.startsWith(".claude-plugin/")
+    )
+  ) {
+    risks.push("Claude plugin assets can diverge from repo intent");
   }
   if (files.some((file) => basename(file) === "README.md")) {
     risks.push("README usage examples can drift from CLI behavior");

@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline/promises";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
-import { ProcessCodexRunner } from "./infra/codex-runner.js";
-import { loadRunArtifacts } from "./infra/filesystem.js";
+import type {
+  ArchitectRoundInput,
+  FeatureRoundInput,
+  HarnessBlueprint,
+  SeedBlueprint,
+  StoryResultInput
+} from "./core/types.js";
 import { ArchitectService } from "./architect/service.js";
 import { HarnessBlueprintService } from "./architect/blueprint-service.js";
 import { HarnessScaffoldService } from "./architect/scaffold-service.js";
-import { MAX_AUTO_REOPENS } from "./core/constants.js";
-import type { InterviewState } from "./core/types.js";
+import { resolveHarnessPaths, readJson } from "./infra/filesystem.js";
 import { InterviewService } from "./interview/service.js";
 import { PrdService } from "./prd/service.js";
 import { RalphService } from "./ralph/service.js";
@@ -22,324 +24,280 @@ async function main(): Promise<void> {
     return;
   }
 
-  const cwd = process.cwd();
-  const runner = new ProcessCodexRunner();
-  const interviewService = new InterviewService(runner);
-  const architectService = new ArchitectService(runner);
-  const seedService = new SeedService(runner);
-  const harnessBlueprintService = new HarnessBlueprintService(runner);
+  if (command !== "internal") {
+    throw new Error(
+      "Hybrid Harness is now Claude-native. Use Claude slash commands or `harness internal --help` for helper commands."
+    );
+  }
+
+  await runInternal(argv, process.cwd());
+}
+
+async function runInternal(argv: string[], cwd: string): Promise<void> {
+  const [subcommand, ...rest] = argv;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printInternalUsage();
+    return;
+  }
+
+  const interviewService = new InterviewService();
+  const architectService = new ArchitectService();
+  const seedService = new SeedService();
+  const harnessBlueprintService = new HarnessBlueprintService();
   const harnessScaffoldService = new HarnessScaffoldService();
   const prdService = new PrdService(seedService);
-  const ralphService = new RalphService(runner);
+  const ralphService = new RalphService();
 
-  switch (command) {
-    case "interview":
-      await runInterviewCommand(argv, cwd, interviewService);
+  switch (subcommand) {
+    case "feature-init":
+      await runFeatureInit(rest, cwd, interviewService);
       return;
-    case "architect":
-      await runArchitectCommand(argv, cwd, architectService);
+    case "feature-apply-round":
+      await runFeatureApplyRound(rest, cwd, interviewService);
       return;
-    case "seed":
-      await runSeedCommand(argv, cwd, seedService);
+    case "architect-init":
+      await runArchitectInit(rest, cwd, architectService);
       return;
-    case "blueprint":
-      await runBlueprintCommand(argv, cwd, harnessBlueprintService);
+    case "architect-apply-round":
+      await runArchitectApplyRound(rest, cwd, architectService);
+      return;
+    case "seed-render":
+      await runSeedRender(rest, cwd, seedService);
+      return;
+    case "blueprint-render":
+      await runBlueprintRender(rest, cwd, harnessBlueprintService);
       return;
     case "scaffold":
-      await runScaffoldCommand(argv, cwd, harnessScaffoldService);
+      await runScaffold(rest, cwd, harnessScaffoldService);
       return;
-    case "ralph":
-      await runRalphCommand(argv, cwd, prdService, ralphService);
+    case "run-init":
+      await runRunInit(rest, cwd, prdService);
       return;
-    case "run":
-      await runCompositeCommand(
-        argv,
-        cwd,
-        interviewService,
-        architectService,
-        seedService,
-        harnessBlueprintService,
-        harnessScaffoldService,
-        prdService,
-        ralphService
-      );
+    case "run-apply-story":
+      await runRunApplyStory(rest, cwd, prdService, ralphService);
       return;
     default:
-      throw new Error(`Unknown command: ${command}`);
+      throw new Error(`Unknown internal command: ${subcommand}`);
   }
 }
 
-async function runInterviewCommand(
+async function runFeatureInit(
   argv: string[],
   cwd: string,
   interviewService: InterviewService
 ): Promise<void> {
   const resume = readFlagValue(argv, "--resume");
-  const idea = positionalArgs(argv, new Set(["--resume"])).join(" ").trim();
+  const idea = readFlagValue(argv, "--idea") ?? positionalArgs(argv, new Set(["--resume", "--idea"])).join(" ").trim();
   if (!resume && !idea) {
-    throw new Error("interview command requires an idea or --resume");
-  }
-  let state = resume ? await interviewService.resume(resume, cwd) : await interviewService.create(idea, cwd);
-
-  console.log(`Interview ID: ${state.interviewId}`);
-  console.log(`Project Type: ${state.projectType}`);
-  console.log(`Current Ambiguity: ${(state.currentAmbiguity * 100).toFixed(0)}%`);
-  if (state.brownfieldContext) {
-    console.log(`Context: ${state.brownfieldContext.summary}`);
+    throw new Error("feature-init requires --idea or --resume");
   }
 
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
+  const state = resume ? await interviewService.resume(resume, cwd) : await interviewService.create(idea, cwd);
+  printJsonIfRequested(argv, {
+    lane: "feature",
+    interviewId: state.interviewId,
+    state,
+    questionPrompt: interviewService.createQuestionPrompt(state),
+    questionSchema: interviewService.createQuestionSchema(state),
+    statePath: resolveHarnessPaths(cwd).interviewsDir,
+    resumeCommand: `harness internal feature-init --resume ${state.interviewId} --json`
   });
-
-  try {
-    while (state.status !== "completed") {
-      const draft = await interviewService.nextQuestion(state, cwd);
-      console.log(`\nRound ${state.rounds.length + 1} | Targeting: ${draft.targeting}`);
-      console.log(`${draft.question}`);
-      const answer = (await rl.question("> ")).trim();
-      if (!answer || [":quit", "quit", "exit"].includes(answer.toLowerCase())) {
-        console.log(`Interview saved. Resume with: harness interview --resume ${state.interviewId}`);
-        return;
-      }
-      state = await interviewService.answer(state, draft, answer, cwd);
-      console.log(interviewService.formatProgress(state));
-    }
-  } finally {
-    rl.close();
-  }
-
-  console.log(`Interview completed. Generate seed with: harness seed ${state.interviewId}`);
 }
 
-async function runArchitectCommand(
+async function runFeatureApplyRound(
+  argv: string[],
+  cwd: string,
+  interviewService: InterviewService
+): Promise<void> {
+  const interviewId = readRequiredFlag(argv, "--interview-id");
+  const roundFile = readRequiredFlag(argv, "--round-file");
+  const state = await interviewService.resume(interviewId, cwd);
+  const input = await readJson<FeatureRoundInput>(resolve(cwd, roundFile));
+  const updated = await interviewService.applyRound(state, input, cwd);
+  printJsonIfRequested(argv, {
+    lane: "feature",
+    interviewId,
+    state: updated,
+    questionPrompt:
+      updated.status === "completed" ? null : interviewService.createQuestionPrompt(updated),
+    questionSchema:
+      updated.status === "completed" ? null : interviewService.createQuestionSchema(updated),
+    nextCommand:
+      updated.status === "completed"
+        ? `harness internal seed-render --interview-id ${updated.interviewId} --draft-file <draft.json>`
+        : `harness internal feature-apply-round --interview-id ${updated.interviewId} --round-file <round.json> --json`
+  });
+}
+
+async function runArchitectInit(
   argv: string[],
   cwd: string,
   architectService: ArchitectService
 ): Promise<void> {
   const resume = readFlagValue(argv, "--resume");
-  const idea = positionalArgs(argv, new Set(["--resume"])).join(" ").trim();
-  if (!resume && !idea) {
-    throw new Error("architect command requires a repo goal or --resume");
+  const goal = readFlagValue(argv, "--goal") ?? positionalArgs(argv, new Set(["--resume", "--goal"])).join(" ").trim();
+  if (!resume && !goal) {
+    throw new Error("architect-init requires --goal or --resume");
   }
 
-  let state = resume ? await architectService.resume(resume, cwd) : await architectService.create(idea, cwd);
-  console.log(`Architect Interview ID: ${state.interviewId}`);
-  console.log(`Current Ambiguity: ${(state.currentAmbiguity * 100).toFixed(0)}%`);
-  console.log(`Repo Profile: ${state.repoProfileSummary}`);
-
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
+  const state = resume ? await architectService.resume(resume, cwd) : await architectService.create(goal, cwd);
+  printJsonIfRequested(argv, {
+    lane: "architect",
+    interviewId: state.interviewId,
+    state,
+    questionPrompt: await architectService.createQuestionPrompt(cwd, state),
+    questionSchema: architectService.createQuestionSchema(),
+    statePath: resolveHarnessPaths(cwd).harnessInterviewsDir,
+    resumeCommand: `harness internal architect-init --resume ${state.interviewId} --json`
   });
-
-  try {
-    state = await completeArchitectInterviewInteractive(state, cwd, architectService, rl);
-  } catch (error) {
-    if (error instanceof Error && error.message === "__quit__") {
-      return;
-    }
-    throw error;
-  } finally {
-    rl.close();
-  }
-
-  console.log(`Architect interview completed. Generate blueprint with: harness blueprint ${state.interviewId}`);
 }
 
-async function runSeedCommand(
+async function runArchitectApplyRound(
   argv: string[],
   cwd: string,
-  seedService: SeedService
+  architectService: ArchitectService
 ): Promise<void> {
-  const force = argv.includes("--force");
-  const interviewId = positionalArgs(argv, new Set())[0];
-  if (!interviewId) {
-    throw new Error("seed command requires an interview id");
-  }
-
-  const result = await seedService.generateFromInterview(cwd, interviewId, { force });
-  console.log(`Spec: ${result.specPath}`);
-  console.log(`Seed: ${result.seedPath}`);
+  const interviewId = readRequiredFlag(argv, "--interview-id");
+  const roundFile = readRequiredFlag(argv, "--round-file");
+  const state = await architectService.resume(interviewId, cwd);
+  const input = await readJson<ArchitectRoundInput>(resolve(cwd, roundFile));
+  const updated = await architectService.applyRound(state, input, cwd);
+  printJsonIfRequested(argv, {
+    lane: "architect",
+    interviewId,
+    state: updated,
+    questionPrompt:
+      updated.status === "completed" ? null : await architectService.createQuestionPrompt(cwd, updated),
+    questionSchema: updated.status === "completed" ? null : architectService.createQuestionSchema(),
+    nextCommand:
+      updated.status === "completed"
+        ? `harness internal blueprint-render --interview-id ${updated.interviewId} --draft-file <draft.json>`
+        : `harness internal architect-apply-round --interview-id ${updated.interviewId} --round-file <round.json> --json`
+  });
 }
 
-async function runBlueprintCommand(
+async function runSeedRender(argv: string[], cwd: string, seedService: SeedService): Promise<void> {
+  const interviewId = readRequiredFlag(argv, "--interview-id");
+  const draftFile = readRequiredFlag(argv, "--draft-file");
+  const force = argv.includes("--force");
+  const draft = await readJson<SeedBlueprint>(resolve(cwd, draftFile));
+  const result = await seedService.generateFromDraft(cwd, interviewId, draft, { force });
+  printJsonIfRequested(argv, {
+    interviewId,
+    specPath: result.specPath,
+    seedPath: result.seedPath,
+    spec: result.spec,
+    seed: result.seed
+  });
+}
+
+async function runBlueprintRender(
   argv: string[],
   cwd: string,
   blueprintService: HarnessBlueprintService
 ): Promise<void> {
+  const interviewId = readRequiredFlag(argv, "--interview-id");
+  const draftFile = readRequiredFlag(argv, "--draft-file");
   const force = argv.includes("--force");
-  const architectInterviewId = positionalArgs(argv, new Set())[0];
-  if (!architectInterviewId) {
-    throw new Error("blueprint command requires an architect interview id");
-  }
-
-  const result = await blueprintService.generateFromInterview(cwd, architectInterviewId, { force });
-  console.log(`Blueprint: ${result.blueprintPath}`);
-  console.log(`Harness Seed: ${result.seedPath}`);
+  const draft = await readJson<HarnessBlueprint>(resolve(cwd, draftFile));
+  const result = await blueprintService.generateFromDraft(cwd, interviewId, draft, { force });
+  printJsonIfRequested(argv, {
+    interviewId,
+    blueprintPath: result.blueprintPath,
+    seedPath: result.seedPath,
+    blueprint: result.blueprint,
+    seed: result.seed
+  });
 }
 
-async function runScaffoldCommand(
+async function runScaffold(
   argv: string[],
   cwd: string,
   scaffoldService: HarnessScaffoldService
 ): Promise<void> {
-  const source = positionalArgs(argv, new Set())[0];
-  if (!source) {
-    throw new Error("scaffold command requires a blueprint or harness seed path");
-  }
+  const source = readRequiredFlag(argv, "--source");
   const result = await scaffoldService.generateFromSource(cwd, resolve(cwd, source));
-  console.log(`Generated harness: ${result.slug}`);
-  console.log(`Active harness: ${result.activeHarness.slug}`);
+  printJsonIfRequested(argv, result);
 }
 
-async function runRalphCommand(
-  argv: string[],
-  cwd: string,
-  prdService: PrdService,
-  ralphService: RalphService
-): Promise<void> {
-  const resume = readFlagValue(argv, "--resume");
-  if (resume) {
-    const artifacts = await loadRunArtifacts(cwd, resume);
-    const result = await ralphService.execute(cwd, resume, artifacts);
-    console.log(`Run ${resume} finished with status: ${result.loopState.status}`);
-    printReopenGuidance(result.loopState);
-    return;
-  }
-
-  const source = positionalArgs(argv, new Set(["--resume"]))[0];
-  if (!source) {
-    throw new Error("ralph command requires a seed or spec path");
-  }
-
-  const resolvedSource = resolve(cwd, source);
-  const { runId, prd, loopState } = await prdService.createRunFromSource(cwd, resolvedSource);
-  const artifacts = {
-    prd,
-    loopState,
-    progress: `# Ralph Progress\n\nRun ID: ${runId}\nSource: ${resolvedSource}\n`,
-    verification: []
-  };
-  const result = await ralphService.execute(cwd, runId, artifacts);
-  console.log(`Run ${runId} finished with status: ${result.loopState.status}`);
-  printReopenGuidance(result.loopState);
-}
-
-async function runCompositeCommand(
-  argv: string[],
-  cwd: string,
-  interviewService: InterviewService,
-  architectService: ArchitectService,
-  seedService: SeedService,
-  blueprintService: HarnessBlueprintService,
-  scaffoldService: HarnessScaffoldService,
-  prdService: PrdService,
-  ralphService: RalphService
-): Promise<void> {
-  const input = positionalArgs(argv, new Set()).join(" ").trim();
-  if (!input) {
-    throw new Error("run command requires an idea or file path");
-  }
-
-  if (existsSync(resolve(cwd, input))) {
-    await runCompositeFromSource(
-      cwd,
-      resolve(cwd, input),
-      interviewService,
-      architectService,
-      seedService,
-      blueprintService,
-      scaffoldService,
-      prdService,
-      ralphService
-    );
-    return;
-  }
-
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
+async function runRunInit(argv: string[], cwd: string, prdService: PrdService): Promise<void> {
+  const source = readRequiredFlag(argv, "--source");
+  const result = await prdService.createRunFromSource(cwd, resolve(cwd, source));
+  const nextStory = result.prd.stories.find((story) => !story.passes) ?? null;
+  printJsonIfRequested(argv, {
+    runId: result.runId,
+    prd: result.prd,
+    loopState: result.loopState,
+    nextStory,
+    nextCommand:
+      nextStory
+        ? `harness internal run-apply-story --run-id ${result.runId} --story-result-file <story-result.json> --json`
+        : null
   });
+}
 
-  try {
-    let featureState = await completeFeatureInterviewInteractive(
-      await interviewService.create(input, cwd),
-      cwd,
-      interviewService,
-      rl
-    );
-    let currentSourcePath = (await seedService.generateFromInterview(cwd, featureState.interviewId)).seedPath;
-    let currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService, {
-      activeHarness: featureState.activeHarness ?? null
-    });
-    let autoFeatureReopens = 0;
-    let autoHarnessReopens = 0;
-    let totalReopens = 0;
+async function runRunApplyStory(
+  argv: string[],
+  cwd: string,
+  prdService: PrdService,
+  ralphService: RalphService
+): Promise<void> {
+  const runId = readRequiredFlag(argv, "--run-id");
+  const storyResultFile = readRequiredFlag(argv, "--story-result-file");
+  const artifacts = await prdService.resumeRun(cwd, runId);
+  const input = await readJson<StoryResultInput>(resolve(cwd, storyResultFile));
+  const result = await ralphService.applyStoryResult(cwd, runId, artifacts, input);
+  const nextStory = result.prd.stories.find((story) => !story.passes) ?? null;
+  printJsonIfRequested(argv, {
+    runId,
+    prd: result.prd,
+    loopState: result.loopState,
+    verification: result.verification,
+    nextStory,
+    nextCommand:
+      result.loopState.status === "completed"
+        ? null
+        : result.loopState.status === "reopen_required"
+          ? result.loopState.suggestedNextCommand
+          : nextStory
+            ? `harness internal run-apply-story --run-id ${runId} --story-result-file <story-result.json> --json`
+            : null
+  });
+}
 
-    while (
-      currentRun.result.loopState.status === "reopen_required" &&
-      totalReopens < MAX_AUTO_REOPENS
-    ) {
-      if (
-        currentRun.result.loopState.reopenTarget === "feature" &&
-        currentRun.result.loopState.reopenStateId &&
-        autoFeatureReopens < 1
-      ) {
-        totalReopens += 1;
-        autoFeatureReopens += 1;
-        featureState = await completeFeatureInterviewInteractive(
-          await interviewService.resume(currentRun.result.loopState.reopenStateId, cwd),
-          cwd,
-          interviewService,
-          rl
-        );
-        currentSourcePath = (
-          await seedService.generateFromInterview(cwd, featureState.interviewId, {
-            force: featureState.currentAmbiguity > featureState.threshold
-          })
-        ).seedPath;
-        currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService, {
-          activeHarness: featureState.activeHarness ?? null
-        });
-        continue;
-      }
+function printUsage(): void {
+  console.log(`Hybrid Harness is now Claude-native.
 
-      if (
-        currentRun.result.loopState.reopenTarget === "harness" &&
-        currentRun.result.loopState.reopenStateId &&
-        autoHarnessReopens < 1
-      ) {
-        totalReopens += 1;
-        autoHarnessReopens += 1;
-        const architectState = await completeArchitectInterviewInteractive(
-          await architectService.resume(currentRun.result.loopState.reopenStateId, cwd),
-          cwd,
-          architectService,
-          rl
-        );
-        const blueprintArtifacts = await blueprintService.generateFromInterview(cwd, architectState.interviewId, {
-          force: architectState.currentAmbiguity > architectState.threshold
-        });
-        await scaffoldService.generateFromSource(cwd, blueprintArtifacts.seedPath);
-        currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService);
-        continue;
-      }
+Use Claude slash commands from the marketplace plugin:
+- /harness
+- /harness-interview
+- /harness-architect
+- /harness-seed
+- /harness-blueprint
+- /harness-scaffold
+- /harness-ralph
+- /harness-run
 
-      break;
-    }
+For deterministic helper commands only:
+  harness internal --help
+`);
+}
 
-    console.log(`Run ${currentRun.runId} finished with status: ${currentRun.result.loopState.status}`);
-    printReopenGuidance(currentRun.result.loopState);
-  } catch (error) {
-    if (error instanceof Error && error.message === "__quit__") {
-      return;
-    }
-    throw error;
-  } finally {
-    rl.close();
-  }
+function printInternalUsage(): void {
+  console.log(`Internal helper commands:
+
+  harness internal feature-init --idea "<idea>" --json
+  harness internal feature-init --resume <interview-id> --json
+  harness internal feature-apply-round --interview-id <id> --round-file <round.json> --json
+  harness internal architect-init --goal "<goal>" --json
+  harness internal architect-init --resume <interview-id> --json
+  harness internal architect-apply-round --interview-id <id> --round-file <round.json> --json
+  harness internal seed-render --interview-id <id> --draft-file <draft.json> [--force] --json
+  harness internal blueprint-render --interview-id <id> --draft-file <draft.json> [--force] --json
+  harness internal scaffold --source <blueprint-or-seed-path> --json
+  harness internal run-init --source <spec-or-seed-path> --json
+  harness internal run-apply-story --run-id <id> --story-result-file <story-result.json> --json
+`);
 }
 
 function readFlagValue(argv: string[], flag: string): string | undefined {
@@ -350,222 +308,40 @@ function readFlagValue(argv: string[], flag: string): string | undefined {
   return argv[index + 1];
 }
 
-function printReopenGuidance(
-  loopState: {
-    status: string;
-    suggestedNextCommand?: string | null;
-    suggestedQuestionFocus?: string[] | null;
-    suggestedRepairFocus?: string[] | null;
+function readRequiredFlag(argv: string[], flag: string): string {
+  const value = readFlagValue(argv, flag);
+  if (!value) {
+    throw new Error(`Missing required flag: ${flag}`);
   }
-): void {
-  if (loopState.status !== "reopen_required") {
-    return;
-  }
-
-  if (loopState.suggestedNextCommand) {
-    console.log(`Next step: ${loopState.suggestedNextCommand}`);
-  }
-
-  if (loopState.suggestedQuestionFocus && loopState.suggestedQuestionFocus.length > 0) {
-    console.log("Question focus:");
-    for (const item of loopState.suggestedQuestionFocus) {
-      console.log(`- ${item}`);
-    }
-  }
-
-  if (loopState.suggestedRepairFocus && loopState.suggestedRepairFocus.length > 0) {
-    console.log("Repair focus:");
-    for (const item of loopState.suggestedRepairFocus) {
-      console.log(`- ${item}`);
-    }
-  }
+  return value;
 }
 
-function positionalArgs(argv: string[], flagsWithValues: Set<string>): string[] {
-  const values: string[] = [];
+function positionalArgs(argv: string[], flags: Set<string>): string[] {
+  const result: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
-    const item = argv[index];
-    if (item.startsWith("--")) {
-      if (flagsWithValues.has(item)) {
-        index += 1;
-      }
+    const value = argv[index];
+    if (flags.has(value)) {
+      index += 1;
       continue;
     }
-    values.push(item);
+    if (value.startsWith("--")) {
+      continue;
+    }
+    result.push(value);
   }
-  return values;
+  return result;
 }
 
-function printUsage(): void {
-  const file = resolve(dirname(new URL(import.meta.url).pathname), "cli.js");
-  console.log(`Usage:
-  node ${file} interview "<idea>" [--resume <interview-id>]
-  node ${file} architect "<repo-goal>" [--resume <architect-id>]
-  node ${file} seed <interview-id> [--force]
-  node ${file} blueprint <architect-id> [--force]
-  node ${file} scaffold <blueprint-or-seed-path>
-  node ${file} ralph <spec-or-seed-path> [--resume <run-id>]
-  node ${file} run "<idea-or-path>"`);
-}
-
-async function completeFeatureInterviewInteractive(
-  state: InterviewState,
-  cwd: string,
-  interviewService: InterviewService,
-  rl: ReturnType<typeof createInterface>
-): Promise<InterviewState> {
-  let current = state;
-  while (current.status !== "completed") {
-    const draft = await interviewService.nextQuestion(current, cwd);
-    console.log(`\nRound ${current.rounds.length + 1} | Targeting: ${draft.targeting}`);
-    console.log(draft.question);
-    const answer = (await rl.question("> ")).trim();
-    if (!answer || [":quit", "quit", "exit"].includes(answer.toLowerCase())) {
-      console.log(`Interview saved. Resume with: harness interview --resume ${current.interviewId}`);
-      process.exitCode = 0;
-      throw new Error("__quit__");
-    }
-    current = await interviewService.answer(current, draft, answer, cwd);
-    console.log(interviewService.formatProgress(current));
+function printJsonIfRequested(argv: string[], payload: unknown): void {
+  if (argv.includes("--json")) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
   }
-  return current;
-}
-
-async function completeArchitectInterviewInteractive(
-  state: Awaited<ReturnType<ArchitectService["resume"]>>,
-  cwd: string,
-  architectService: ArchitectService,
-  rl: ReturnType<typeof createInterface>
-): Promise<Awaited<ReturnType<ArchitectService["resume"]>>> {
-  let current = state;
-  while (current.status !== "completed") {
-    const draft = await architectService.nextQuestion(current, cwd);
-    console.log(`\nArchitect Round ${current.rounds.length + 1} | Targeting: ${draft.targeting}`);
-    console.log(draft.question);
-    const answer = (await rl.question("> ")).trim();
-    if (!answer || [":quit", "quit", "exit"].includes(answer.toLowerCase())) {
-      console.log(`Architect interview saved. Resume with: harness architect --resume ${current.interviewId}`);
-      process.exitCode = 0;
-      throw new Error("__quit__");
-    }
-    current = await architectService.answer(current, draft, answer, cwd);
-    console.log(architectService.formatProgress(current));
-  }
-  return current;
-}
-
-async function executeRunFromSource(
-  cwd: string,
-  sourcePath: string,
-  prdService: PrdService,
-  ralphService: RalphService,
-  options: { activeHarness?: InterviewState["activeHarness"] } = {}
-) {
-  const { runId, prd, loopState } = await prdService.createRunFromSource(cwd, sourcePath, {
-    activeHarness: options.activeHarness ?? null
-  });
-  const result = await ralphService.execute(cwd, runId, {
-    prd,
-    loopState,
-    progress: `# Ralph Progress\n\nRun ID: ${runId}\nSource: ${sourcePath}\n`,
-    verification: []
-  });
-  return { runId, result };
-}
-
-async function runCompositeFromSource(
-  cwd: string,
-  sourcePath: string,
-  interviewService: InterviewService,
-  architectService: ArchitectService,
-  seedService: SeedService,
-  blueprintService: HarnessBlueprintService,
-  scaffoldService: HarnessScaffoldService,
-  prdService: PrdService,
-  ralphService: RalphService
-): Promise<void> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  try {
-    let currentSourcePath = sourcePath;
-    let currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService);
-    let autoFeatureReopens = 0;
-    let autoHarnessReopens = 0;
-    let totalReopens = 0;
-
-    while (
-      currentRun.result.loopState.status === "reopen_required" &&
-      totalReopens < MAX_AUTO_REOPENS
-    ) {
-      if (
-        currentRun.result.loopState.reopenTarget === "feature" &&
-        currentRun.result.loopState.reopenStateId &&
-        autoFeatureReopens < 1
-      ) {
-        totalReopens += 1;
-        autoFeatureReopens += 1;
-        const featureState = await completeFeatureInterviewInteractive(
-          await interviewService.resume(currentRun.result.loopState.reopenStateId, cwd),
-          cwd,
-          interviewService,
-          rl
-        );
-        currentSourcePath = (
-          await seedService.generateFromInterview(cwd, featureState.interviewId, {
-            force: featureState.currentAmbiguity > featureState.threshold
-          })
-        ).seedPath;
-        currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService, {
-          activeHarness: featureState.activeHarness ?? null
-        });
-        continue;
-      }
-
-      if (
-        currentRun.result.loopState.reopenTarget === "harness" &&
-        currentRun.result.loopState.reopenStateId &&
-        autoHarnessReopens < 1
-      ) {
-        totalReopens += 1;
-        autoHarnessReopens += 1;
-        const architectState = await completeArchitectInterviewInteractive(
-          await architectService.resume(currentRun.result.loopState.reopenStateId, cwd),
-          cwd,
-          architectService,
-          rl
-        );
-        const blueprintArtifacts = await blueprintService.generateFromInterview(cwd, architectState.interviewId, {
-          force: architectState.currentAmbiguity > architectState.threshold
-        });
-        await scaffoldService.generateFromSource(cwd, blueprintArtifacts.seedPath);
-        currentRun = await executeRunFromSource(cwd, currentSourcePath, prdService, ralphService);
-        continue;
-      }
-
-      break;
-    }
-
-    console.log(`Run ${currentRun.runId} finished with status: ${currentRun.result.loopState.status}`);
-    if (
-      currentRun.result.loopState.status === "reopen_required" &&
-      currentRun.result.loopState.suggestedNextCommand
-    ) {
-      console.log(`Next step: ${currentRun.result.loopState.suggestedNextCommand}`);
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message === "__quit__") {
-      return;
-    }
-    throw error;
-  } finally {
-    rl.close();
-  }
+  console.log(JSON.stringify(payload, null, 2));
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
   process.exitCode = 1;
 });

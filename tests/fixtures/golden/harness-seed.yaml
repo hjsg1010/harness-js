@@ -77,7 +77,6 @@ generation_targets:
   slug: research-harness
   claude_agents: true
   claude_skills: true
-  codex_skills: true
 metadata:
   seed_id: harness_seed_fixed
   blueprint_id: blueprint_fixed

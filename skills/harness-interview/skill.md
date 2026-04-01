@@ -1,37 +1,65 @@
 ---
 name: harness-interview
-description: "Hybrid harness interview lane. Use when the user has a vague implementation idea and wants Ouroboros-style clarification before code execution."
+description: "Run the Hybrid Harness feature interview lane inside Claude Code."
 ---
 
 # Harness Interview
 
-이 스킬은 ambiguity-gated interview를 시작하거나 이어간다.
+이 스킬은 feature requirement를 한 번에 한 질문씩 줄여 가는 Claude-native interview lane이다.
 
-## 실행
+## Start or resume
 
-다음 명령으로 interview를 시작한다.
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" interview "<idea>"
-```
-
-이어받기는 다음 명령을 사용한다.
+새 interview를 시작할 때:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" interview --resume <interview-id>
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal feature-init --idea "{{ARGUMENTS}}" --json
 ```
 
-## 출력
+기존 interview를 이어갈 때:
 
-- `.harness/interviews/<id>.json`
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal feature-init --resume <interview-id> --json
+```
 
-## 사용 시점
+## What to do with the helper output
 
-- 요구사항이 모호할 때
-- brownfield 변경이지만 수정 경계가 불분명할 때
-- seed/spec를 먼저 고정하고 싶을 때
+1. JSON에서 `questionPrompt`, `questionSchema`, `state`, `interviewId`를 읽는다.
+2. `questionPrompt`를 기준으로 **딱 한 개의 질문만** 만든다.
+3. 질문은 30단어 이내로 유지하고 weakest dimension을 겨냥한다.
+4. 사용자가 답하면 round JSON을 만든다.
 
-## 참고
+Round JSON shape:
 
-- active harness가 있으면 interview prompt가 그 harness의 terminology와 verification emphasis를 반영한다.
-- marketplace로 설치한 경우 runner가 first run에 `npm install`, `npm run build`를 자동으로 수행할 수 있다.
+```json
+{
+  "targeting": "goal",
+  "rationale": "Why this question matters",
+  "question": "Ask one question only",
+  "answer": "User answer",
+  "breakdown": {
+    "goal": { "score": 0.9, "justification": "Clear", "gap": "Clear" },
+    "constraints": { "score": 0.7, "justification": "Mostly clear", "gap": "Need boundary details" },
+    "criteria": { "score": 0.6, "justification": "Partly clear", "gap": "Need testable output" },
+    "context": { "score": 0.8, "justification": "Known", "gap": "Clear" }
+  },
+  "weakestDimension": "criteria",
+  "weakestDimensionRationale": "Output contract is still ambiguous"
+}
+```
+
+그 다음 helper를 호출한다.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT:-.}/scripts/harness-plugin-runner.sh" internal feature-apply-round --interview-id <interview-id> --round-file <round.json> --json
+```
+
+## Completion
+
+- `state.status`가 `completed`가 되면 다음 단계는 `seed-render`다.
+- helper output의 `nextCommand`를 사용자에게 바로 안내한다.
+
+## Guardrails
+
+- brownfield면 repo 사실을 다시 사용자에게 물어보지 않는다.
+- feature list보다 assumption, constraints, acceptance criteria를 우선한다.
+- Claude가 reasoning을 맡고, helper CLI는 state persistence만 맡는다.

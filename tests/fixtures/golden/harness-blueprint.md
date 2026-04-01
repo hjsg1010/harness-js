@@ -64,5 +64,3 @@ Build a repo-specific harness for multi-angle research and synthesis.
 ## Generation Targets
 - claude-agents
 - claude-skills
-- codex-skills
-

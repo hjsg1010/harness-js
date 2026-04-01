@@ -206,31 +206,31 @@ cd /home/hjsg1010/SolPE
 ### 1. SolPE 전용 harness bootstrap
 
 ```bash
-harness architect "이 repo는 Function Requirement와 analyzed TC 매핑 실험을 운영하는 연구형 repo다. phase instruction 문서를 기준으로 실험을 설계하고, scripts/run_experiments_phase8.sh로 실행하고, scripts/analyze_experiments.py와 scripts/error_deep_dive.py로 search failure와 judge failure를 분리 분석하는 repo-specific harness를 설계해줘. experiment planner, experiment runner, search investigator, judge investigator, metrics analyst, phase report writer가 필요하다."
-harness blueprint <architect-id>
-harness scaffold .harness/harness-seeds/<seed-id>.yaml
+/harness-architect 이 repo는 Function Requirement와 analyzed TC 매핑 실험을 운영하는 연구형 repo다. phase instruction 문서를 기준으로 실험을 설계하고, scripts/run_experiments_phase8.sh로 실행하고, scripts/analyze_experiments.py와 scripts/error_deep_dive.py로 search failure와 judge failure를 분리 분석하는 repo-specific harness를 설계해줘. experiment planner, experiment runner, search investigator, judge investigator, metrics analyst, phase report writer가 필요하다.
+/harness-blueprint <architect-id>
+/harness-scaffold .harness/harness-seeds/<seed-id>.yaml
 ```
 
 ### 2. Best search case 탐색
 
 ```bash
-harness interview "SolPE에서 현재 최적의 case를 찾고 있다. docs/phase8_instruction.md 를 baseline brief로 삼고, search_hit_rate와 candidate coverage 개선에 집중하고 싶다. exact-term, entity_query, enriched decomposition context 쪽을 우선 보고 judge-side 변경은 최소화하는 실험/개발 loop를 설계하자."
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview SolPE에서 현재 최적의 case를 찾고 있다. docs/phase8_instruction.md 를 baseline brief로 삼고, search_hit_rate와 candidate coverage 개선에 집중하고 싶다. exact-term, entity_query, enriched decomposition context 쪽을 우선 보고 judge-side 변경은 최소화하는 실험/개발 loop를 설계하자.
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 ### 3. Judge / guardrail calibration
 
 ```bash
-harness interview "SolPE phase8 baseline을 기준으로 retrieval 후보군은 유지하면서 judge-side calibration을 개선하고 싶다. 목표는 selection_hit_rate와 decision_accuracy를 높이고, exact-value guardrail과 default-state/negative-capability handling을 더 안정화하는 것이다."
-harness seed <interview-id>
-harness ralph .harness/seeds/<seed-id>.yaml
+/harness-interview SolPE phase8 baseline을 기준으로 retrieval 후보군은 유지하면서 judge-side calibration을 개선하고 싶다. 목표는 selection_hit_rate와 decision_accuracy를 높이고, exact-value guardrail과 default-state/negative-capability handling을 더 안정화하는 것이다.
+/harness-seed <interview-id>
+/harness-ralph .harness/seeds/<seed-id>.yaml
 ```
 
 ### 4. 참고: 한 번에 묶고 싶다면
 
 ```bash
-harness run "SolPE에서 현재 최적의 case를 찾고 있다. docs/phase8_instruction.md 를 baseline brief로 삼고, search_hit_rate와 candidate coverage 개선에 집중하고 싶다."
+/harness-run SolPE에서 현재 최적의 case를 찾고 있다. docs/phase8_instruction.md 를 baseline brief로 삼고, search_hit_rate와 candidate coverage 개선에 집중하고 싶다.
 ```
 
 다만 SolPE에서는 보통 `interview -> seed -> ralph`를 먼저 권장한다. 이유는 phase brief, baseline, 검증 기준을 immutable artifact로 고정하는 이점이 크기 때문이다.
